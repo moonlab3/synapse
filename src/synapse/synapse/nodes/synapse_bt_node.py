@@ -4,7 +4,6 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import JointState
 from synapse.utils.terminal_manager import KeyboardListener, BackgroundTUI
-import atexit
 from concurrent.futures import ThreadPoolExecutor
 from synapse.brains.brain_selector import BrainSelector
 from collections import deque
@@ -35,24 +34,14 @@ class SynapseBTNode(Node):
         self.declare_parameter('obs_buffer_window_size', 10)
         self.declare_parameter('brain_option', "manual")  # Placeholder for future brain options
         self.declare_parameter('muscle_option', "isaac")  # Placeholder for future muscle options
-        self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
-        self.declare_parameter('checkpoint_path', "/checkpoint")
 
         self.tick_freq = self.get_parameter('bt_tick_frequency_hz').value
         self.obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
         self.brain_option = self.get_parameter('brain_option').value
         self.muscle_option = self.get_parameter('muscle_option').value
-        self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
-        self.checkpoint_path = self.get_parameter('checkpoint_path').value
 
         # Components
-        adapter_config = {
-            'brain_type': self.brain_option,
-            'checkpoint_path': self.checkpoint_path,
-            'muscle_embodiment': self.muscle_embodiment
-        }
-        
-        self.brain_adapter = BrainSelector.get_brain(adapter_config)
+        self.brain_adapter = BrainSelector.get_brain(self.brain_option)
         if self.brain_adapter is None:
             self.get_logger().error(f"Invalid brain option: {self.brain_option}. Please check your configuration.")
             raise ValueError(f"Invalid brain option: {self.brain_option}")
@@ -75,7 +64,7 @@ class SynapseBTNode(Node):
         
         self.get_logger().info(f"⚙️  BT Tick Frequency: {self.tick_freq} Hz")
         self.get_logger().info(f"⚙️  Observation Buffer Window Size: {self.obs_buffer_size}")
-        self.get_logger().info(f"⚙️️  Brain Option: {self.brain_option}, Checkpoint Path: {self.checkpoint_path}")
+        self.get_logger().info(f"⚙️️  Brain Option: {self.brain_option}")
         self.get_logger().info("🎉 Synapse BT Node Ready.")
         self.get_logger().info("Controls: [s] Start | [p] Pause | [q] Quit | Manual Commands: [z/x/y/r/t/w] (for manual mode)")
         self.count = 0

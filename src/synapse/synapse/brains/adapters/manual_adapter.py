@@ -54,21 +54,20 @@ def solve_ik_jit(
     return sol[joint_var]
 
 class ManualAdapter(BaseBrainAdapter):
-    def __init__(self, config=None):
-        super().__init__(config, 'Manual_Adapter')
+    def __init__(self):
+        super().__init__('manual_adapter')
         self.step_size = 0.05
         # Conceptual state holding for FK/IK solvers
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
-        self.embodiment = self.config.get('muscle_embodiment', 'LIBERO_PANDA')
 
-        if "PANDA" in self.embodiment:
+        if "PANDA" in self.muscle_embodiment:
             # from robot_descriptions import panda_description
             urdf = load_robot_description("panda_description")
             self.robot = pk.Robot.from_urdf(urdf=urdf)
             # self.robot = pk.Robot.from_urdf(urdf=panda_description.URDF_PATH)
             self.eef_frame = "panda_hand"
         else:
-            raise ValueError(f"Unknown embodiment '{self.embodiment}' for ManualAdapter. Please check your configuration.")
+            raise ValueError(f"Unknown embodiment '{self.muscle_embodiment}' for ManualAdapter. Please check your configuration.")
         # --- Add to the end of __init__ ---
         self.get_logger().info("⚙️ Warming up JAX IK compiler... (This will take ~1 second)")
         dummy_se3 = jaxlie.SE3.identity()

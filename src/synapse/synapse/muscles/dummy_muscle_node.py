@@ -13,7 +13,6 @@ class DummyMuscleNode(Node):
         self.declare_parameter('publish_rate_hz', 100)
         freq = self.get_parameter('publish_rate_hz').value
 
-        # Publisher: Sending joint states back to synapse_bt_node
         self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
         
         # Subscribers: Listening for actions and commands from Synapse

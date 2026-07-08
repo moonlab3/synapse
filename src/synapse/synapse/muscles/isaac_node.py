@@ -51,13 +51,15 @@ sys.argv = [arg for arg in sys.argv if arg not in injected_args]
 # 4. ROS2 and Isaac Sim core imports
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, Image
 from std_msgs.msg import String
 import numpy as np
 
 from isaacsim.core.api.world import World
 from isaacsim.core.prims import Articulation
 from isaacsim.core.api.physics_context import PhysicsContext
+from omni.isaac.sensor import Camera
+from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import omni.usd
 
 class IsaacMuscleNode(Node):
@@ -69,18 +71,19 @@ class IsaacMuscleNode(Node):
         self.declare_parameter('robot_name', 'panda')
         self.declare_parameter('robot_prim_path', '/World/franka_set/Franka/panda')
         self.declare_parameter('publish_rate_hz', 100)
+        self.declare_parameter('camera_config', 'wrist_cam')
 
         self.usd_path = self.get_parameter('usd_path').value
         self.robot_name = self.get_parameter('robot_name').value
         self.robot_prim_path = self.get_parameter('robot_prim_path').value
         self.publish_rate = self.get_parameter('publish_rate_hz').value
+        self.camera_config = self.get_parameter('camera_config').value
 
         # ROS2 Interfaces
         self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
+        self.pub_camera = self.create_publisher(Image, "/synapse/camera/image_raw", 10)
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
-        self.sub_brain_output = self.create_subscription(
-            JointState, '/synapse/brain_output', self.brain_output_callback, 10
-        )
+        self.sub_brain_output = self.create_subscription( JointState, '/synapse/brain_output', self.brain_output_callback, 10)
 
         # Isaac Sim Environment Setup
         self._setup_isaac_sim()
@@ -133,6 +136,37 @@ class IsaacMuscleNode(Node):
 
         self.world.reset()
         self.articulation.initialize()
+
+        # Camera Setup
+        if self.camera_config == "wrist_cam":
+            camera_prim_path = f"{self.robot_prim_path}/panda_hand/wrist_cam"
+            pitch_angle_rad = np.deg2rad(-75)
+            roll_angle_rad = np.deg2rad(180)
+            camera_translation = [-0.10, 0.00, -0.05]
+            focal_length = 1.5
+            camera_quat = euler_angles_to_quat(np.array([roll_angle_rad, pitch_angle_rad, 0.0]))
+
+            self.camera = Camera(
+                prim_path=camera_prim_path,
+                translation=camera_translation,
+                orientation=camera_quat,
+                resolution=(256,256),
+                frequency=20,
+            )
+        elif self.camera_config == "quarter_view_cam":
+            camera_prim_path = "/World/franka_set/Azure/Camera"
+            focal_length = 1.5
+            self.camera = Camera(
+                prim_path=camera_prim_path,
+                resolution=(256, 256),
+                frequenct=20,
+            )
+        
+        if self.camera:
+            self.camera.initialize()
+            self.camera.set_focal_length(focal_length)
+            self.camera.set_clipping_range(near_distance=0.01, far_distance=10.0)
+            self.get_logger().info(f"📷 Camera initialized: {self.camera_config}")
         
         # Update once to populate internal physics buffers
         simulation_app.update()
@@ -165,6 +199,21 @@ class IsaacMuscleNode(Node):
             msg.position = current_positions.tolist()
             
             self.pub_joint_states.publish(msg)
+
+            if self.camera:
+                frame_rgba = self.camera.get_rgba()
+                if frame_rgba is not None and frame_rgba.shape == (256, 256, 4):
+                    frame_rgb = frame_rgba[:, :, :3]
+                    img_msg = Image()
+                    img_msg.header.stamp = self.get_clock().now().to_msg()
+                    img_msg.header.frame_id = self.camera_config
+                    img_msg.height = 256
+                    img_msg.width = 256
+                    img_msg.encoding = "rgb8"
+                    img_msg.is_bigendian = 0
+                    img_msg.step = 256 * 3
+                    img_msg.data = frame_rgb.astype(np.uint8).tobytes()
+                    self.pub_camera.publish(img_msg)
 
 def main(args=None):
     rclpy.init(args=args)

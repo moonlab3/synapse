@@ -2,10 +2,12 @@ from abc import ABC, abstractmethod
 from rclpy.node import Node
 
 class BaseBrainAdapter(ABC, Node):
-    def __init__(self, config=None, node_name=None):
+    def __init__(self, node_name=None):
         super().__init__(node_name)
+        self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
+        self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
+        print(f"BaseBrainAdapter muscle:{self.muscle_embodiment}")
 
-        self.config = config or {}
 
     def infer(self, obs_history: list) -> list:
         """
