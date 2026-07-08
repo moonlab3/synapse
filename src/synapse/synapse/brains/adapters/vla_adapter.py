@@ -8,8 +8,6 @@ import jax_dataclasses as jdc
 import jaxlie
 import jaxls
 import pyroki as pk
-import yourdfpy
-from pathlib import Path
 from sensor_msgs.msg import JointState
 from loguru import logger
 

@@ -17,7 +17,7 @@ vla_adapter:
     checkpoint_path: "/path/to/checkpoint"  # Used for RL and VLA options
     muscle_embodiment: "LIBERO_PANDA"
 
-isaac_muscle_node:
+isaac_node:
   ros__parameters:
     publish_rate_hz: 100
     usd_path: "/home/rog-sf/vla/OXE.usd"

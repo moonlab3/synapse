@@ -1,6 +1,8 @@
 #!/home/rog-sf/installs/isaacsim/python.sh
 import sys
 import os
+current_domain = os.environ.get("ROS_DOMAIN_ID", "44")
+os.environ["ROS_DOMAIN_ID"] = current_domain
 
 # --- 1. THE SELF-RESTARTING SCRUBBER & REBUILDER ---
 # Use a custom flag to prevent the infinite reboot loop
@@ -62,9 +64,9 @@ from omni.isaac.sensor import Camera
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import omni.usd
 
-class IsaacMuscleNode(Node):
+class IsaacNode(Node):
     def __init__(self):
-        super().__init__('isaac_muscle_node')
+        super().__init__('isaac_node')
 
         # Declare ROS2 Parameters for configuration
         self.declare_parameter('usd_path', '/home/rog-sf/vla/OXE.usd')
@@ -179,45 +181,46 @@ class IsaacMuscleNode(Node):
 
     def spin_and_step(self):
         """Manual loop to step both ROS2 and Isaac Sim concurrently"""
-        while simulation_app.is_running() and self.world.is_playing():
-            # 1. Process ROS2 callbacks (non-blocking)
+        while simulation_app.is_running():
             rclpy.spin_once(self, timeout_sec=0.0)
+            if self.world.is_playing():
 
-            # 2. Apply targets to Isaac Sim (reshape to 1xN for batched articulation API)
-            self.articulation.set_joint_position_targets(self.target_joints.reshape(1, -1))
+                self.articulation.set_joint_position_targets(self.target_joints.reshape(1, -1))
 
-            # 3. Step simulation
-            self.world.step(render=True)
-            simulation_app.update()
+                self.world.step(render=True)
+                simulation_app.update()
 
-            # 4. Read physical state and publish back to Synapse
-            current_positions = self.articulation.get_joint_positions()[0]
+                current_positions = self.articulation.get_joint_positions()[0]
+                
+                msg = JointState()
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.name = self.joint_names
+                msg.position = current_positions.tolist()
+                
+                self.pub_joint_states.publish(msg)
+
+                if self.camera:
+                    frame_rgba = self.camera.get_rgba()
+                    if frame_rgba is not None and frame_rgba.shape == (256, 256, 4):
+                        frame_rgb = frame_rgba[:, :, :3]
+                        img_msg = Image()
+                        img_msg.header.stamp = self.get_clock().now().to_msg()
+                        img_msg.header.frame_id = self.camera_config
+                        img_msg.height = 256
+                        img_msg.width = 256
+                        img_msg.encoding = "rgb8"
+                        img_msg.is_bigendian = 0
+                        img_msg.step = 256 * 3
+                        img_msg.data = frame_rgb.astype(np.uint8).tobytes()
+                        self.pub_camera.publish(img_msg)
+            else:
+                self.world.render()
+                simulation_app.update()
             
-            msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name = self.joint_names
-            msg.position = current_positions.tolist()
-            
-            self.pub_joint_states.publish(msg)
-
-            if self.camera:
-                frame_rgba = self.camera.get_rgba()
-                if frame_rgba is not None and frame_rgba.shape == (256, 256, 4):
-                    frame_rgb = frame_rgba[:, :, :3]
-                    img_msg = Image()
-                    img_msg.header.stamp = self.get_clock().now().to_msg()
-                    img_msg.header.frame_id = self.camera_config
-                    img_msg.height = 256
-                    img_msg.width = 256
-                    img_msg.encoding = "rgb8"
-                    img_msg.is_bigendian = 0
-                    img_msg.step = 256 * 3
-                    img_msg.data = frame_rgb.astype(np.uint8).tobytes()
-                    self.pub_camera.publish(img_msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = IsaacMuscleNode()
+    node = IsaacNode()
     
     try:
         node.spin_and_step()
