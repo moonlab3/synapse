@@ -30,6 +30,8 @@ class SynapseBTNode(Node):
     def __init__(self):
         super().__init__('synapse_bt_node')
 
+        self.terminal_ui = BackgroundTUI()
+
         self.declare_parameter('bt_tick_frequency_hz', 100)
         self.declare_parameter('obs_buffer_window_size', 10)
         self.declare_parameter('brain_option', "manual")  # Placeholder for future brain options
@@ -40,10 +42,9 @@ class SynapseBTNode(Node):
         self.brain_option = self.get_parameter('brain_option').value
         self.muscle_option = self.get_parameter('muscle_option').value
 
-        # Components
         self.brain_adapter = BrainSelector.get_brain(self.brain_option)
+
         if self.brain_adapter is None:
-            self.get_logger().error(f"Invalid brain option: {self.brain_option}. Please check your configuration.")
             raise ValueError(f"Invalid brain option: {self.brain_option}")
 
         self.action_buffer = ActionChunkBuffer()  # Manage action chunks from the brain
@@ -59,65 +60,54 @@ class SynapseBTNode(Node):
         self.pub_brain_output = self.create_publisher(JointState, '/synapse/brain_output', 10)
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
         
-        # Behavior Tree Tick (tick_freq Hz = 1/tick_freq seconds)
-        self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
-        
-        self.get_logger().info(f"⚙️  BT Tick Frequency: {self.tick_freq} Hz")
-        self.get_logger().info(f"⚙️  Observation Buffer Window Size: {self.obs_buffer_size}")
-        self.get_logger().info(f"⚙️️  Brain Option: {self.brain_option}")
-        self.get_logger().info("🎉 Synapse BT Node Ready.")
-        self.get_logger().info("Controls: [s] Start | [p] Pause | [q] Quit | Manual Commands: [z/x/y/r/t/w] (for manual mode)")
-        self.count = 0
-        self.last_command = None
+        self.terminal_ui.log(f"⚙️  BT Tick Frequency: {self.tick_freq} Hz")
+        self.terminal_ui.log(f"⚙️  Observation Buffer Window Size: {self.obs_buffer_size}")
+        self.terminal_ui.log(f"⚙️️  Brain Option: {self.brain_option}")
+        self.terminal_ui.log("🎉 Synapse BT Node Ready.")
 
-        self.terminal_ui = BackgroundTUI()
-        self.key_listener = KeyboardListener()
+
+        self.last_command = None
         self.status = "Idle"
+        self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
     def obs_callback(self, msg):
-        self.count += 1
         # Native asynchronous buffering. Always holds the freshest data.
-        # if self.count % 1000 == 0:  # Log every 1000th message to avoid spamming
-        #     self.get_logger().info(f"Received obs {msg}")
         obs_dict = {"image": None, "joint": msg, "command": self.last_command}  # Placeholder for actual image_msgs
         self.obs_buffer.append(obs_dict)
 
     def tick(self):
 
         # 1. System Input Checking
-        key = self.key_listener.get_key_and_clear()
+        key = self.terminal_ui.get_command()
         
         if key and key.startswith("CMD:"):
             command_sentence = key[4:]  # Extract the command after "CMD:"
-            # self.get_logger().info(f"📝 Received command sentence: {command_sentence}")
             self.last_command = command_sentence
         else:
             match key:
                 case 'q':
-                    self.get_logger().info("Quitting Synapse.")
+                    self.terminal_ui.log("Quitting Synapse.")
                     self.pub_synapse_command.publish(String(data="QUIT"))
                     self.last_command = None
                     raise KeyboardInterrupt
                 case 's' if not self.is_ticking:
-                    # self.get_logger().info(f"🌲🌲BT Ticking Started ({self.tick_freq}Hz).▶️")
                     self.is_ticking = True
                     self.last_command = None
                     self.status = "Running"
                     self.pub_synapse_command.publish(String(data="START"))
                     self.terminal_ui.update_status(self.status)
-                    self.terminal_ui.log(f"Status: {self.status}")
+                    self.terminal_ui.log(f"🌲🌲BT Ticking Started ({self.tick_freq}Hz).▶️ Status: {self.status}")
                 case 'p' if self.is_ticking:
-                    # self.get_logger().info("🌲🌲BT Paused. ⏸️")
                     self.is_ticking = False
                     self.last_command = None
                     self.status = "Paused"
                     self.pub_synapse_command.publish(String(data="PAUSE"))
                     self.terminal_ui.update_status(self.status)
-                    self.terminal_ui.log(f"Status: {self.status}")
+                    self.terminal_ui.log(f"🌲🌲BT Paused. ⏸️ Status: {self.status}")
                 case 'z' | 'Z' | 'x' | 'X' | 'y' | 'Y' | 'r' | 'R' | 't' | 'T' | 'w' | 'W':
                     # This is for manual mode only
                     self.last_command = key
-                    self.terminal_ui.log(f"Manual command: {key}")
+                    # self.terminal_ui.log(f"Manual command: {key}")
                 case _:
                     self.last_command = None
                     pass
@@ -129,7 +119,6 @@ class SynapseBTNode(Node):
         # Leaf: Format Observation
         if self.inference_future is not None and self.inference_future.done():
             new_action_chunk = self.inference_future.result()
-            # self.get_logger().info(f"🌲🌲 Inference completed")
             if new_action_chunk:
                 self.action_buffer.update_chunk(new_action_chunk)
             self.inference_future = None
@@ -138,7 +127,6 @@ class SynapseBTNode(Node):
              # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
             self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
-            # self.get_logger().info(f"🌲🌲 Inference submitted with obs_buffer length: {len(historical_obs)}")
 
         action, status = self.action_buffer.pop_next_action()
 

@@ -7,11 +7,19 @@ import curses
 import time
 from collections import deque
 
-import curses
-import threading
-import time
-import atexit
-from collections import deque
+
+class StdoutRedirector:
+    """Catches all print() and ROS logs and pipes them to the TUI."""
+    def __init__(self, tui):
+        self.tui = tui
+
+    def write(self, msg):
+        clean_msg = msg.strip()
+        if clean_msg:
+            self.tui.log(clean_msg)
+
+    def flush(self):
+        pass
 
 class BackgroundTUI:
     def __init__(self):
@@ -23,6 +31,12 @@ class BackgroundTUI:
         # Lock to prevent ROS 2 main thread and UI background thread from colliding
         self._lock = threading.Lock()
         
+        # ⚡ CRITICAL FIX: Hijack standard output so print() doesn't destroy curses
+        self.old_stdout = sys.stdout
+        self.old_stderr = sys.stderr
+        sys.stdout = StdoutRedirector(self)
+        sys.stderr = StdoutRedirector(self)
+        
         self.thread = threading.Thread(target=self._start_curses, daemon=True)
         self.thread.start()
         
@@ -30,6 +44,9 @@ class BackgroundTUI:
 
     def _cleanup(self):
         self._running = False
+        # Restore standard output before closing
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
         try:
             curses.endwin()
         except:
@@ -39,7 +56,7 @@ class BackgroundTUI:
         try:
             curses.wrapper(self._ui_loop)
         except Exception as e:
-            # If it crashes, print the error to terminal after curses closes
+            # Safely print post-crash since we restored stdout in wrapper exit
             print(f"TUI Thread Crashed: {e}")
 
     def _ui_loop(self, stdscr):
@@ -47,20 +64,19 @@ class BackgroundTUI:
         stdscr.nodelay(True)
         stdscr.timeout(100)  # Refresh 10 Hz
 
-        split_line = 18
+        # Fixed split line for controls (dynamic based on terminal size is safer, but 8 is reliable)
+        split_line = 8
 
         while self._running:
             stdscr.erase()
             max_y, max_x = stdscr.getmaxyx()
 
-            # Safely grab a snapshot of the data so we don't hold the lock while drawing
             with self._lock:
                 current_status = self.status
                 visible_logs = list(self.log_buffer)
 
-            # --- 1. Draw UI (with strict bounds checking) ---
+            # --- 1. Draw UI ---
             try:
-                # Top bar (subtract 1 from max_x to prevent line-wrap crashes)
                 top_bar = " (Q)uit | (S)tart | (P)ause | (C)ommand ".center(max_x - 1)
                 stdscr.addstr(0, 0, top_bar[:max_x - 1], curses.A_REVERSE)
                 
@@ -71,19 +87,16 @@ class BackgroundTUI:
 
                 stdscr.hline(split_line, 0, curses.ACS_HLINE, max_x - 1)
             except curses.error:
-                # Terminal might be too small, ignore drawing error for this frame
-                pass
+                pass # Terminal too small, skip drawing frame
 
             # --- 2. Draw Logs ---
             log_start_row = split_line + 1
             log_lines_available = max_y - log_start_row - 1
             
-            # Slice the list to only get what fits on screen
             logs_to_draw = visible_logs[-log_lines_available:] if log_lines_available > 0 else []
             
             for i, log_msg in enumerate(logs_to_draw):
                 try:
-                    # Cut string short to avoid wrap-around exceptions
                     stdscr.addstr(log_start_row + i, 2, log_msg[:max_x - 4])
                 except curses.error:
                     pass
@@ -94,33 +107,33 @@ class BackgroundTUI:
             try:
                 key = stdscr.getch()
                 if key != -1:
-                    char = chr(key).lower()
-                    
-                    if char in ['q', 's', 'p']:
-                        with self._lock:
-                            self.commands_queue.append(char)
-                    elif char == 'c':
-                        # Pause UI, show cursor, get string
-                        stdscr.nodelay(False)
-                        curses.curs_set(1)
-                        stdscr.addstr(split_line, 2, " 📝 Enter command: ")
-                        curses.echo()
+                    # Catch terminal resize keys and non-ASCII to prevent chr() crash
+                    if 0 <= key <= 255:
+                        char = chr(key)
                         
-                        sentence_bytes = stdscr.getstr(split_line, 21, 50)
-                        
-                        curses.noecho()
-                        curses.curs_set(0)
-                        stdscr.nodelay(True)
-                        
-                        with self._lock:
-                            self.commands_queue.append(f"CMD:{sentence_bytes.decode('utf-8')}")
-            except ValueError:
+                        if char in ['q', 's', 'p', 'x', 'y', 'z', 't', 'r', 'w', 'X', 'Y', 'Z', 'T', 'R', 'W']:
+                            with self._lock:
+                                self.commands_queue.append(char)
+                        elif char == 'c':
+                            stdscr.nodelay(False)
+                            curses.curs_set(1)
+                            # ⚡ CRITICAL FIX: Removed the emoji. It breaks curses getstr offsets.
+                            stdscr.addstr(split_line, 2, "[CMD] Enter command: ")
+                            curses.echo()
+                            
+                            sentence_bytes = stdscr.getstr(split_line, 23, 50)
+                            
+                            curses.noecho()
+                            curses.curs_set(0)
+                            stdscr.nodelay(True)
+                            
+                            with self._lock:
+                                self.commands_queue.append(f"CMD:{sentence_bytes.decode('utf-8')}")
+            except Exception:
                 pass
 
     # --- Thread-Safe API for ROS Code ---
-    
     def log(self, msg):
-        """Thread-safe logging"""
         timestamp = time.strftime("%H:%M:%S")
         with self._lock:
             self.log_buffer.append(f"[{timestamp}] {msg}")
@@ -134,6 +147,7 @@ class BackgroundTUI:
             if self.commands_queue:
                 return self.commands_queue.popleft()
             return None
+
 
 class KeyboardListener:
     def __init__(self):

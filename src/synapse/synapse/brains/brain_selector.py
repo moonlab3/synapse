@@ -1,4 +1,4 @@
-from .adapters.vla_adapter import VLAAdapter
+from .adapters.gr00t_adapter import GR00TAdapter
 from .adapters.manual_adapter import ManualAdapter
 
 class BrainSelector:
@@ -9,10 +9,9 @@ class BrainSelector:
             match brain_type:
                 case 'MANUAL':
                     return ManualAdapter()
-                case 'VLA':
-                    return VLAAdapter()
+                case 'GR00T':
+                    return GR00TAdapter()
                 case _:
                     return None
         except Exception as e:
-            print(f"❌❌ Error initializing brain of type {brain_type}: {e}")
-            return None
+            raise ValueError(f"❌❌ Error initializing brain of type {brain_type}: {e}")

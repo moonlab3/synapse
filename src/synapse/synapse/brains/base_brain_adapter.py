@@ -6,28 +6,21 @@ class BaseBrainAdapter(ABC, Node):
         super().__init__(node_name)
         self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
         self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
-        print(f"BaseBrainAdapter muscle:{self.muscle_embodiment}")
-
 
     def infer(self, obs_history: list) -> list:
-        """
-        Main inference workflow enforcing Synapse Architecture 3.1.2.
-        """
         if not obs_history:
             return []
 
         # 1. Convert observations into model-specific formats (and apply FK if needed)
         formatted_obs = self._format_for_policy(obs_history)
-        # self.get_logger().info(f"🧠  formatted_obs: {formatted_obs}")
         
         # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
         raw_action = self._communicate_with_policy(formatted_obs)
-        # self.get_logger().info(f"🧠  raw_action: {raw_action}")
         
         # 3. Format action for muscle wrapper (and apply IK if needed)
         action_chunk = self._format_for_muscle(raw_action)
-        _chunk = ", ".join(f"{v:.3f}" for v in action_chunk[0].position)
-        # self.get_logger().info(f"🧠  action_chunk: {_chunk}")
+        if action_chunk and action_chunk[0].position:
+            _chunk = ", ".join(f"{v:.3f}" for v in action_chunk[0].position)
         
         return action_chunk
 

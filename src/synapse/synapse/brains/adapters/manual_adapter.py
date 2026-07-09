@@ -64,12 +64,11 @@ class ManualAdapter(BaseBrainAdapter):
             # from robot_descriptions import panda_description
             urdf = load_robot_description("panda_description")
             self.robot = pk.Robot.from_urdf(urdf=urdf)
-            # self.robot = pk.Robot.from_urdf(urdf=panda_description.URDF_PATH)
             self.eef_frame = "panda_hand"
         else:
             raise ValueError(f"Unknown embodiment '{self.muscle_embodiment}' for ManualAdapter. Please check your configuration.")
         # --- Add to the end of __init__ ---
-        self.get_logger().info("⚙️ Warming up JAX IK compiler... (This will take ~1 second)")
+        # self.get_logger().info("⚙️ Warming up JAX IK compiler... (This will take ~1 second)")
         dummy_se3 = jaxlie.SE3.identity()
         dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
         dummy_q = jnp.zeros(self.robot.joints.num_actuated_joints)
@@ -121,7 +120,7 @@ class ManualAdapter(BaseBrainAdapter):
 
     def _inverse_kinematics(self, eef_pose: list, original_joint_state: JointState) -> JointState:
         if not original_joint_state or not original_joint_state.position:
-            self.get_logger().warn("Original joint state is missing or empty. Returning default joint state.")
+            # self.get_logger().warn("Original joint state is missing or empty. Returning default joint state.")
             return JointState(name=[], position=[])
 
         target_se3 = self._list_to_se3(eef_pose)
@@ -183,14 +182,10 @@ class ManualAdapter(BaseBrainAdapter):
         command = formatted_obs.get("command")
         eef_pose = formatted_obs.get("eef_pose")
 
-        # self.get_logger().info(f"📝 ManualAdapter received command: [{command}] ")
-        # if not command or eef_pose is None:
-        #     self.get_logger().warn("No command or EEF pose received. Returning current EEF pose without changes.")
-        #     return formatted_obs
-
         if command is not None:
             if len(command) > 2:
-                self.get_logger().info(f"📝 Received command sentence: [{command}]")
+                # self.get_logger().info(f"📝 Received command sentence: [{command}]")
+                pass
             else:
                 match command:
                     case 'z': eef_pose[2] += self.step_size

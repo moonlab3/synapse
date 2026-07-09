@@ -73,9 +73,9 @@ def solve_ik_jit(
 # ==========================================
 # 🧠 VLA Brain Adapter (GR00T)
 # ==========================================
-class VLAAdapter(BaseBrainAdapter):
+class GR00TAdapter(BaseBrainAdapter):
     def __init__(self):
-        super().__init__('val_adapter')
+        super().__init__('gr00t_adapter')
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
         
         # 1. Initialize GR00T Policy Client
