@@ -68,14 +68,14 @@ class ManualAdapter(BaseBrainAdapter):
         else:
             raise ValueError(f"Unknown embodiment '{self.muscle_embodiment}' for ManualAdapter. Please check your configuration.")
         # --- Add to the end of __init__ ---
-        # self.get_logger().info("⚙️ Warming up JAX IK compiler... (This will take ~1 second)")
         dummy_se3 = jaxlie.SE3.identity()
         dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
         dummy_q = jnp.zeros(self.robot.joints.num_actuated_joints)
         
         # This triggers the compilation
         _ = solve_ik_jit(self.robot, dummy_se3, dummy_idx, dummy_q) 
-        self.get_logger().info("⚡ JAX IK Compiler ready. Solving at microseconds.")
+        print("⚡ JAX IK Compiler ready. Solving at microseconds.")
+        print("Manual Mode Key input: eef pose [x], [y], [z], [r]oll, pi[t]ch, ya[w]")
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
         """Convert jaxlie.SE3 to a list of [x, y, z, roll, pitch, yaw]."""

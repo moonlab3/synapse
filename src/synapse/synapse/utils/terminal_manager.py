@@ -7,14 +7,13 @@ import curses
 import time
 from collections import deque
 
-
 class StdoutRedirector:
     """Catches all print() and ROS logs and pipes them to the TUI."""
     def __init__(self, tui):
         self.tui = tui
 
     def write(self, msg):
-        clean_msg = msg.strip()
+        clean_msg = msg
         if clean_msg:
             self.tui.log(clean_msg)
 
@@ -111,7 +110,7 @@ class BackgroundTUI:
                     if 0 <= key <= 255:
                         char = chr(key)
                         
-                        if char in ['q', 's', 'p', 'x', 'y', 'z', 't', 'r', 'w', 'X', 'Y', 'Z', 'T', 'R', 'W']:
+                        if char in ['q', 's', 'p', 'x', 'y', 'z', 't', 'r', 'w', 'X', 'Y', 'Z', 'T', 'R', 'W', 'e', 'E']:
                             with self._lock:
                                 self.commands_queue.append(char)
                         elif char == 'c':

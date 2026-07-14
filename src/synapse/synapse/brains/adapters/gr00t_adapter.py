@@ -79,8 +79,10 @@ class GR00TAdapter(BaseBrainAdapter):
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
         
         # 1. Initialize GR00T Policy Client
-        ip = self.config.get('brain_ip', "0.0.0.0")
-        port = self.config.get('brain_port', 8888)
+        self.declare_parameter('policy_ip', "0.0.0.0")
+        self.declare_parameter('policy_port', "8888")
+        ip = self.get_parameter('policy_ip').value
+        port = self.get_parameter('policy_port').value
         
         if PolicyClient:
             self.client = PolicyClient(ip, port)
@@ -91,9 +93,6 @@ class GR00TAdapter(BaseBrainAdapter):
         else:
             raise ValueError("NO POLICY CLIENT")
         
-        # 2. Load the robot embodiment for PyRoki
-        self.muscle_embodiment = self.config.get('muscle_embodiment', 'LIBERO_PANDA')
-
         if "PANDA" in self.muscle_embodiment:
             urdf = load_robot_description("panda_description")
             self.robot = pk.Robot.from_urdf(urdf=urdf)
@@ -102,7 +101,6 @@ class GR00TAdapter(BaseBrainAdapter):
             raise ValueError(f"Unknown embodiment '{self.muscle_embodiment}' for ManualAdapter. Please check your configuration.")
         
         # 3. Warm up JAX Compiler
-        print("⚙️ Warming up JAX IK compiler for VLA... (This will take ~1 second)")
         dummy_se3 = jaxlie.SE3.identity()
         dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
         dummy_q = jnp.zeros(self.robot.joints.num_actuated_joints)
@@ -174,12 +172,19 @@ class GR00TAdapter(BaseBrainAdapter):
             "gripper": np.array([[[normalized_gripper]]], dtype=np.float32)
         }
 
-        clean_command = command.replace("CMD:", "").strip() if command else ""
+        # clean_command = command.replace("CMD:", "").strip() if command else ""
+        clean_command = command
+
+        if image is not None:
+            formatted_image = image[np.newaxis, np.newaxis, :, :, :]
+        else:
+            formatted_image = np.zeros((1, 1, 256, 256, 3), dtype=np.uint8)
 
         obs = {
             "annotation.human.action.task_description": [clean_command],
-            "video.image_0": image,
+            "video.image_0": formatted_image,
         }
+
         for item in state:
             obs[f"state.{item}"] = state[item]
 
@@ -188,15 +193,23 @@ class GR00TAdapter(BaseBrainAdapter):
         obs["_internal_original_joint"] = joint_msg
 
         return obs
-
     def _communicate_with_policy(self, formatted_obs: dict) -> dict:
         # Extract internal context before passing to GR00T
         base_pose = formatted_obs.pop("_internal_base_pose")
         original_joint = formatted_obs.pop("_internal_original_joint")
 
         if self.client:
-            action_dict = self.client.get_action(formatted_obs)
+            raw_result = self.client.get_action(formatted_obs)
+            
+            # ⚡ THE FIX: Extract the actual dictionary from the GR00T return tuple
+            if isinstance(raw_result, (list, tuple)):
+                action_dict = raw_result[0]
+            else:
+                action_dict = raw_result
+                
+            # print(f"GR00T_ADAPTER: Extracted keys: {action_dict.keys()}")
         else:
+            print("NO CLIENT")
             action_dict = {} # Fallback if client failed to load
 
         return {

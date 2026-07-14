@@ -74,16 +74,18 @@ class IsaacNode(Node):
         self.declare_parameter('robot_prim_path', '/World/franka_set/Franka/panda')
         self.declare_parameter('publish_rate_hz', 100)
         self.declare_parameter('camera_config', 'wrist_cam')
+        self.declare_parameter('camera_topic', '/synapse/camera/image_raw')
 
         self.usd_path = self.get_parameter('usd_path').value
         self.robot_name = self.get_parameter('robot_name').value
         self.robot_prim_path = self.get_parameter('robot_prim_path').value
         self.publish_rate = self.get_parameter('publish_rate_hz').value
         self.camera_config = self.get_parameter('camera_config').value
+        self.camera_topic = self.get_parameter('camera_topic').value
 
         # ROS2 Interfaces
         self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
-        self.pub_camera = self.create_publisher(Image, "/synapse/camera/image_raw", 10)
+        self.pub_camera = self.create_publisher(Image, self.camera_topic, 10)
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
         self.sub_brain_output = self.create_subscription( JointState, '/synapse/brain_output', self.brain_output_callback, 10)
 
@@ -95,26 +97,33 @@ class IsaacNode(Node):
         self.joint_names = self.articulation.dof_names
         
         # Start with current positions to prevent sudden jumping
-        initial_positions = self.articulation.get_joint_positions()[0]
-        self.target_joints = np.array(initial_positions, dtype=np.float32)
+        self.reset_process = 100
+        self.initial_positions = self.articulation.get_joint_positions()[0]
+        self.target_joints = np.array(self.initial_positions, dtype=np.float32)
 
         self.get_logger().info(f"🦾 Isaac Muscle Node initialized for {self.robot_name} with {self.num_dofs} DOFs.")
 
     def synapse_command_callback(self, msg: String):
         """Receives commands from synapse_bt_node (e.g., start, stop)"""
         command = msg.data
-        if command == "START":
-            self.get_logger().info("Received START command. Resuming simulation.")
-            self.world.play()
-        elif command == "PAUSE":
-            self.get_logger().info("Received PAUSE command. Pausing simulation.")
-            self.world.pause()
-        elif command == "QUIT":
-            self.get_logger().info("Received QUIT command. Shutting down Isaac Muscle Node.")
-            simulation_app.close()
-            rclpy.shutdown()
-        else:
-            self.get_logger().warn(f"Unknown command received: {command}")
+        match command:
+            case "START":
+                self.get_logger().info("Received START command. Resuming simulation.")
+                self.world.play()
+            case "PAUSE":
+                self.get_logger().info("Received PAUSE command. Pausing simulation.")
+                self.world.pause()
+            case "QUIT":
+                self.get_logger().info("Received QUIT command. Shutting down Isaac Muscle Node.")
+                simulation_app.close()
+                rclpy.shutdown()
+            case "RESET":
+                self.get_logger().info("Received RESET command. Resetting robot to initial pose")
+                self.target_joints = self.initial_positions.copy()
+                self.reset_process = 0
+
+            case _:
+                self.get_logger().warn(f"Unknown command received: {command}")
 
     def _setup_isaac_sim(self):
         self.get_logger().info(f"Opening stage: {self.usd_path}")
@@ -171,11 +180,12 @@ class IsaacNode(Node):
             self.get_logger().info(f"📷 Camera initialized: {self.camera_config}")
         
         # Update once to populate internal physics buffers
+        # TODO: store robot's initial position
         simulation_app.update()
 
     def brain_output_callback(self, msg: JointState):
         """Receives target joints from synapse_bt_node"""
-        if msg.position:
+        if msg.position and self.reset_process >= 100:
             length = min(len(msg.position), self.num_dofs)
             self.target_joints[:length] = np.array(msg.position)[:length]
 
@@ -184,6 +194,9 @@ class IsaacNode(Node):
         while simulation_app.is_running():
             rclpy.spin_once(self, timeout_sec=0.0)
             if self.world.is_playing():
+
+                if self.reset_process < 100:
+                    self.reset_process += 1
 
                 self.articulation.set_joint_position_targets(self.target_joints.reshape(1, -1))
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import rclpy
+import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import String
-from sensor_msgs.msg import JointState
-from synapse.utils.terminal_manager import KeyboardListener, BackgroundTUI
+from sensor_msgs.msg import JointState, Image
+from synapse.utils.terminal_manager import BackgroundTUI
 from concurrent.futures import ThreadPoolExecutor
 from synapse.brains.brain_selector import BrainSelector
 from collections import deque
@@ -34,13 +35,15 @@ class SynapseBTNode(Node):
 
         self.declare_parameter('bt_tick_frequency_hz', 100)
         self.declare_parameter('obs_buffer_window_size', 10)
-        self.declare_parameter('brain_option', "manual")  # Placeholder for future brain options
-        self.declare_parameter('muscle_option', "isaac")  # Placeholder for future muscle options
+        self.declare_parameter('brain_option', "manual")
+        self.declare_parameter('muscle_option', "isaac")
+        self.declare_parameter('camera_topic', "/synapse/camera/image_raw")
 
         self.tick_freq = self.get_parameter('bt_tick_frequency_hz').value
         self.obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
         self.brain_option = self.get_parameter('brain_option').value
         self.muscle_option = self.get_parameter('muscle_option').value
+        self.camera_topic = self.get_parameter('camera_topic').value
 
         self.brain_adapter = BrainSelector.get_brain(self.brain_option)
 
@@ -54,9 +57,11 @@ class SynapseBTNode(Node):
         self.inference_future = None
         self.inference_executor = ThreadPoolExecutor(max_workers=1)  # Dedicated thread for inference
         self.is_ticking = False
+        self.latest_image = None
         
         # ROS2 Interfaces
         self.sub_joint_states = self.create_subscription(JointState, '/synapse/joint_states', self.obs_callback, 10)
+        self.sub_camera = self.create_subscription(Image, self.camera_topic, self.image_callback, 10)
         self.pub_brain_output = self.create_publisher(JointState, '/synapse/brain_output', 10)
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
         
@@ -67,12 +72,18 @@ class SynapseBTNode(Node):
 
 
         self.last_command = None
+        self.to_brain = "pick up the box"
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
+    def image_callback(self, msg: Image):
+        frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
+        self.latest_image = frame
+
     def obs_callback(self, msg):
         # Native asynchronous buffering. Always holds the freshest data.
-        obs_dict = {"image": None, "joint": msg, "command": self.last_command}  # Placeholder for actual image_msgs
+        #TODO: add image to obs dict 
+        obs_dict = {"image": self.latest_image, "joint": msg, "command": self.to_brain}  # Placeholder for actual image_msgs
         self.obs_buffer.append(obs_dict)
 
     def tick(self):
@@ -82,7 +93,7 @@ class SynapseBTNode(Node):
         
         if key and key.startswith("CMD:"):
             command_sentence = key[4:]  # Extract the command after "CMD:"
-            self.last_command = command_sentence
+            self.to_brain = command_sentence
         else:
             match key:
                 case 'q':
@@ -104,6 +115,8 @@ class SynapseBTNode(Node):
                     self.pub_synapse_command.publish(String(data="PAUSE"))
                     self.terminal_ui.update_status(self.status)
                     self.terminal_ui.log(f"🌲🌲BT Paused. ⏸️ Status: {self.status}")
+                case 'e':
+                    self.pub_synapse_command.publish(String(data="RESET"))
                 case 'z' | 'Z' | 'x' | 'X' | 'y' | 'Y' | 'r' | 'R' | 't' | 'T' | 'w' | 'W':
                     # This is for manual mode only
                     self.last_command = key
@@ -120,6 +133,7 @@ class SynapseBTNode(Node):
         if self.inference_future is not None and self.inference_future.done():
             new_action_chunk = self.inference_future.result()
             if new_action_chunk:
+                # self.terminal_ui.log("ACTION CHUNK IS UPDATED")
                 self.action_buffer.update_chunk(new_action_chunk)
             self.inference_future = None
         
@@ -135,6 +149,8 @@ class SynapseBTNode(Node):
 
         if action is not None:
             self.pub_brain_output.publish(action)
+        else:
+            self.terminal_ui.log("Action buffer is empty")
 
 
 def main(args=None):

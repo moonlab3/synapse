@@ -16,12 +16,14 @@ class BaseBrainAdapter(ABC, Node):
         
         # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
         raw_action = self._communicate_with_policy(formatted_obs)
+        # print(f"raw action type:{type(raw_action)}, len:{len(raw_action)}")
         
         # 3. Format action for muscle wrapper (and apply IK if needed)
         action_chunk = self._format_for_muscle(raw_action)
         if action_chunk and action_chunk[0].position:
             _chunk = ", ".join(f"{v:.3f}" for v in action_chunk[0].position)
         
+        # print(f"final result: {action_chunk}")
         return action_chunk
 
     @abstractmethod
