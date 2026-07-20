@@ -1,118 +1,80 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-import curses
-from collections import deque
-import time
+from robot_descriptions.loaders.yourdfpy import load_robot_description
+import pyroki as pk
+import jax.numpy as jnp
+import jaxlie
+import jax_dataclasses as jdc
+import jaxls
+import jax
 
+@jdc.jit
+def solve_ik_jit(
+    robot: pk.Robot,
+    target_se3: jaxlie.SE3,
+    target_link_idx: jax.Array,
+    initial_q: jax.Array,
+    ) -> jax.Array:
+    joint_var = robot.joint_var_cls(0)
+    joint_mask = jnp.ones(robot.joints.num_actuated_joints)
+
+    costs = [
+        pk.costs.pose_cost_analytic_jac(
+            robot, 
+            joint_var,
+            target_se3,
+            target_link_idx, 
+            pos_weight=1.0,
+            ori_weight=1.0,
+            joint_mask=joint_mask
+        ),
+        pk.costs.limit_constraint(
+            robot,
+            joint_var,
+        )
+    ]
+
+    init_vals = jaxls.VarValues.make([joint_var.with_value(initial_q)])
+
+    sol = (
+        jaxls.LeastSquaresProblem(costs=costs, variables=[joint_var])
+        .analyze()
+        .solve(
+            initial_vals=init_vals, 
+            verbose=False,
+            linear_solver="dense_cholesky",
+            trust_region=jaxls.TrustRegionConfig(lambda_initial=1.0)
+        )
+    )
+    return sol[joint_var]
 class MyNode(Node):
     def __init__(self):
-        super().__init__('my_tui_node')
-        self.status = "Idle"
+        super().__init__('test')
         
-        # We store logs in a scrolling queue to display them safely in the UI
-        self.log_buffer = deque(maxlen=30) 
-        
-        # Core node logic runs on a timer
+
+        urdf = load_robot_description("panda_description")
+        self.robot = pk.Robot.from_urdf(urdf=urdf)
+        self.eef_frame = "panda_hand"
         self.timer = self.create_timer(0.1, self.tick)
 
+        dummy_se3 = jaxlie.SE3.identity()
+        dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
+        dummy_q = jnp.zeros(self.robot.joints.num_actuated_joints)
+        
+        # This triggers the compilation
+        _ = solve_ik_jit(self.robot, dummy_se3, dummy_idx, dummy_q) 
+        print("⚡ JAX IK Compiler ready. Solving at microseconds.")
     def tick(self):
-        """Your main ROS 2 logic goes here."""
-        if self.status == "Running":
-            # Example of doing work
-            pass
+        pass
 
-    def tui_log(self, msg):
-        """Use this instead of self.get_logger().info() for UI logs"""
-        timestamp = time.strftime("%H:%M:%S")
-        self.log_buffer.append(f"[{timestamp}] {msg}")
-        # You can still call self.get_logger().info(msg) here if you want it saved to disk
-
-def run_tui(stdscr, node):
-    """The main UI and Event Loop"""
-    # curses setup
-    curses.curs_set(0)      # Hide cursor
-    stdscr.nodelay(True)    # Make getch() non-blocking so ROS keeps spinning
-    
-    # Define screen layout
-    split_line = 8
-
-    while rclpy.ok():
-        stdscr.erase()
-        max_y, max_x = stdscr.getmaxyx()
-
-        # --- 1. Draw Top Menu ---
-        top_bar = " (Q)uit | (S)tart | (P)ause | (C)ommand "
-        stdscr.addstr(0, 0, top_bar.center(max_x), curses.A_REVERSE)
-        
-        stdscr.addstr(2, 2, "[S]tart - Start the process")
-        stdscr.addstr(3, 2, "[P]ause - Pause the process")
-        stdscr.addstr(4, 2, "[C]     - Enter custom sentence")
-        stdscr.addstr(6, 2, f"Status: {node.status}", curses.A_BOLD)
-
-        # Draw dividing line
-        stdscr.hline(split_line, 0, curses.ACS_HLINE, max_x)
-
-        # --- 2. Draw Logs ---
-        log_start_row = split_line + 1
-        log_lines_available = max_y - log_start_row - 1
-        
-        # Get only the logs that fit on screen
-        visible_logs = list(node.log_buffer)[-log_lines_available:]
-        for i, log_msg in enumerate(visible_logs):
-            # Truncate log to terminal width to prevent wrap-around visual bugs
-            stdscr.addstr(log_start_row + i, 2, log_msg[:max_x - 3])
-
-        stdscr.refresh()
-
-        # --- 3. Handle Keyboard Input ---
-        try:
-            key = stdscr.getch()
-            if key != -1:
-                char = chr(key).lower()
-                
-                if char == 'q':
-                    break
-                elif char == 's':
-                    node.status = "Running"
-                    node.tui_log("Process started.")
-                elif char == 'p':
-                    node.status = "Paused"
-                    node.tui_log("Process paused.")
-                elif char == 'c':
-                    # Switch to blocking mode for sentence input
-                    stdscr.nodelay(False)
-                    curses.curs_set(1)
-                    
-                    # Draw prompt
-                    stdscr.addstr(split_line, 2, " 📝 Enter command: ")
-                    curses.echo()
-                    
-                    # Wait for user to type sentence and press Enter
-                    # 50 is the max string length
-                    sentence_bytes = stdscr.getstr(split_line, 21, 50) 
-                    sentence = sentence_bytes.decode('utf-8')
-                    
-                    # Put UI back to non-blocking mode
-                    curses.noecho()
-                    curses.curs_set(0)
-                    stdscr.nodelay(True)
-                    
-                    node.tui_log(f"Received sentence: {sentence}")
-        except ValueError:
-            pass
-
-        # --- 4. Spin ROS 2 ---
-        # Instead of rclpy.spin(), we spin once per loop to keep the UI responsive
-        rclpy.spin_once(node, timeout_sec=0.05)
 
 def main(args=None):
     rclpy.init(args=args)
     node = MyNode()
     
     try:
-        # curses.wrapper safely initializes the terminal and restores it on crash/exit
-        curses.wrapper(run_tui, node)
+         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:

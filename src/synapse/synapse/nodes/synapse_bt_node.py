@@ -31,13 +31,14 @@ class SynapseBTNode(Node):
     def __init__(self):
         super().__init__('synapse_bt_node')
 
-        self.terminal_ui = BackgroundTUI()
-
         self.declare_parameter('bt_tick_frequency_hz', 100)
         self.declare_parameter('obs_buffer_window_size', 10)
         self.declare_parameter('brain_option', "manual")
         self.declare_parameter('muscle_option', "isaac")
         self.declare_parameter('camera_topic', "/synapse/camera/image_raw")
+
+        self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
+        self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
 
         self.tick_freq = self.get_parameter('bt_tick_frequency_hz').value
         self.obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
@@ -45,6 +46,7 @@ class SynapseBTNode(Node):
         self.muscle_option = self.get_parameter('muscle_option').value
         self.camera_topic = self.get_parameter('camera_topic').value
 
+        self.terminal_ui = BackgroundTUI()
         self.brain_adapter = BrainSelector.get_brain(self.brain_option)
 
         if self.brain_adapter is None:
@@ -68,11 +70,12 @@ class SynapseBTNode(Node):
         self.terminal_ui.log(f"⚙️  BT Tick Frequency: {self.tick_freq} Hz")
         self.terminal_ui.log(f"⚙️  Observation Buffer Window Size: {self.obs_buffer_size}")
         self.terminal_ui.log(f"⚙️️  Brain Option: {self.brain_option}")
+        self.terminal_ui.log(f"⚙️️  Hardware Setup: {self.muscle_embodiment}")
+        self.terminal_ui.log(f"⚙️️  Muscle Option: {self.muscle_option}")
         self.terminal_ui.log("🎉 Synapse BT Node Ready.")
 
 
-        self.last_command = None
-        self.to_brain = "pick up the box"
+        self.to_brain = self.last_command = "pick up the box"
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
@@ -83,7 +86,8 @@ class SynapseBTNode(Node):
     def obs_callback(self, msg):
         # Native asynchronous buffering. Always holds the freshest data.
         #TODO: add image to obs dict 
-        obs_dict = {"image": self.latest_image, "joint": msg, "command": self.to_brain}  # Placeholder for actual image_msgs
+        self.last_command = self.to_brain if len(self.to_brain) > 2 else self.last_command
+        obs_dict = {"image": self.latest_image, "joint": msg, "command": self.last_command}  # Placeholder for actual image_msgs
         self.obs_buffer.append(obs_dict)
 
     def tick(self):
@@ -94,35 +98,31 @@ class SynapseBTNode(Node):
         if key and key.startswith("CMD:"):
             command_sentence = key[4:]  # Extract the command after "CMD:"
             self.to_brain = command_sentence
+            self.terminal_ui.log(f"entered: {command_sentence}")
         else:
             match key:
                 case 'q':
                     self.terminal_ui.log("Quitting Synapse.")
                     self.pub_synapse_command.publish(String(data="QUIT"))
-                    self.last_command = None
                     raise KeyboardInterrupt
                 case 's' if not self.is_ticking:
                     self.is_ticking = True
-                    self.last_command = None
                     self.status = "Running"
                     self.pub_synapse_command.publish(String(data="START"))
                     self.terminal_ui.update_status(self.status)
                     self.terminal_ui.log(f"🌲🌲BT Ticking Started ({self.tick_freq}Hz).▶️ Status: {self.status}")
                 case 'p' if self.is_ticking:
                     self.is_ticking = False
-                    self.last_command = None
                     self.status = "Paused"
                     self.pub_synapse_command.publish(String(data="PAUSE"))
                     self.terminal_ui.update_status(self.status)
                     self.terminal_ui.log(f"🌲🌲BT Paused. ⏸️ Status: {self.status}")
                 case 'e':
                     self.pub_synapse_command.publish(String(data="RESET"))
-                case 'z' | 'Z' | 'x' | 'X' | 'y' | 'Y' | 'r' | 'R' | 't' | 'T' | 'w' | 'W':
-                    # This is for manual mode only
-                    self.last_command = key
-                    # self.terminal_ui.log(f"Manual command: {key}")
+                case None:
+                    pass
                 case _:
-                    self.last_command = None
+                    self.to_brain = key
                     pass
                 
             

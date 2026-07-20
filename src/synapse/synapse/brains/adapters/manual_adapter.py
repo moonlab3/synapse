@@ -7,6 +7,7 @@ import jaxlie
 import jaxls
 import jax_dataclasses as jdc
 import pyroki as pk
+import yourdfpy
 from robot_descriptions.loaders.yourdfpy import load_robot_description
 from loguru import logger
 
@@ -60,19 +61,24 @@ class ManualAdapter(BaseBrainAdapter):
         # Conceptual state holding for FK/IK solvers
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
 
-        if "PANDA" in self.muscle_embodiment:
-            # from robot_descriptions import panda_description
-            urdf = load_robot_description("panda_description")
-            self.robot = pk.Robot.from_urdf(urdf=urdf)
-            self.eef_frame = "panda_hand"
+        if self.robot_description:
+            self.declare_parameter('description_name', "panda_description")
+            self.description_name = self.get_parameter('description_name').value
+            urdf = load_robot_description(self.description_name)
         else:
-            raise ValueError(f"Unknown embodiment '{self.muscle_embodiment}' for ManualAdapter. Please check your configuration.")
-        # --- Add to the end of __init__ ---
+            self.declare_parameter('urdf_path', "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf")
+            urdf_path = self.get_parameter('urdf_path').value
+            urdf = yourdfpy.URDF.load(urdf_path)
+
+
+        self.robot = pk.Robot.from_urdf(urdf=urdf)
+        self.declare_parameter('eef_frame', "panda_hand")
+        self.eef_frame = self.get_parameter('eef_frame').value
+
         dummy_se3 = jaxlie.SE3.identity()
         dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
         dummy_q = jnp.zeros(self.robot.joints.num_actuated_joints)
         
-        # This triggers the compilation
         _ = solve_ik_jit(self.robot, dummy_se3, dummy_idx, dummy_q) 
         print("⚡ JAX IK Compiler ready. Solving at microseconds.")
         print("Manual Mode Key input: eef pose [x], [y], [z], [r]oll, pi[t]ch, ya[w]")

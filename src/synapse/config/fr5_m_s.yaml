@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    muscle_embodiment: "FAIRINO_FR5"
+
+synapse_bt_node:
+  ros__parameters:
+    bt_tick_frequency_hz: 50
+    obs_buffer_window_size: 20
+    brain_option: "MANUAL"
+    muscle_option: "ISAAC"
+
+manual_adapter:
+  ros__parameters:
+    robot_description: False
+    urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
+    eef_frame: "wrist3_link"
+
+gr00t_adapter:
+  ros__parameters:
+    policy_ip: "172.16.6.101"
+    policy_port: "8888"
+
+isaac_node:
+  ros__parameters:
+    publish_rate_hz: 100
+    usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.usd"
+    robot_name: "fairino5_v6_robot"
+    robot_prim_path: "/World/fairino5_v6_robot"

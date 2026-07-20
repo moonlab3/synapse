@@ -73,7 +73,7 @@ class IsaacNode(Node):
         self.declare_parameter('robot_name', 'panda')
         self.declare_parameter('robot_prim_path', '/World/franka_set/Franka/panda')
         self.declare_parameter('publish_rate_hz', 100)
-        self.declare_parameter('camera_config', 'wrist_cam')
+        self.declare_parameter('camera_config', '')
         self.declare_parameter('camera_topic', '/synapse/camera/image_raw')
 
         self.usd_path = self.get_parameter('usd_path').value
@@ -86,8 +86,10 @@ class IsaacNode(Node):
         # ROS2 Interfaces
         self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
         self.pub_camera = self.create_publisher(Image, self.camera_topic, 10)
+
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
         self.sub_brain_output = self.create_subscription( JointState, '/synapse/brain_output', self.brain_output_callback, 10)
+        self.camera = None
 
         # Isaac Sim Environment Setup
         self._setup_isaac_sim()
@@ -129,6 +131,16 @@ class IsaacNode(Node):
         self.get_logger().info(f"Opening stage: {self.usd_path}")
         omni.usd.get_context().open_stage(self.usd_path)
 
+        for _ in range(30):
+            simulation_app.update()
+
+        stage = omni.usd.get_context().get_stage()
+        self.get_logger().info("--- SCANNING USD FOR ROBOTS ---")
+        for prim in stage.Traverse():
+            path_str = str(prim.GetPath()).lower()
+            if "panda" in path_str or "franka" in path_str:
+                self.get_logger().info(f"Found potential robot prim at: {prim.GetPath()}")
+        self.get_logger().info("-------------------------------")
         # Match BT Node frequency or physics frequency
         dt = 1.0 / self.publish_rate
         self.world = World(physics_dt=dt, rendering_dt=dt, stage_units_in_meters=1.0)
@@ -137,12 +149,14 @@ class IsaacNode(Node):
         self.world._physics_context = physics_context
         
         if not self.world.scene.object_exists(self.robot_name):
+            self.get_logger().info(f"prim path: {self.robot_prim_path}, name:{self.robot_name}")
             self.articulation = Articulation(
                 prim_paths_expr=self.robot_prim_path, 
                 name=self.robot_name
             )
             self.world.scene.add(self.articulation)
         else:
+            self.get_logger().info(f"EXIST prim path: {self.robot_prim_path}, name:{self.robot_name}")
             self.articulation = self.world.scene.get_object(self.robot_name)
 
         self.world.reset()

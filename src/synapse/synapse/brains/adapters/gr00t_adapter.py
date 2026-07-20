@@ -14,6 +14,7 @@ from loguru import logger
 # Silence JAXLS and PyRoki info/debug logs
 logger.disable("jaxls")
 logger.disable("pyroki")
+import yourdfpy
 from robot_descriptions.loaders.yourdfpy import load_robot_description
 
 # ==========================================
@@ -93,13 +94,20 @@ class GR00TAdapter(BaseBrainAdapter):
         else:
             raise ValueError("NO POLICY CLIENT")
         
-        if "PANDA" in self.muscle_embodiment:
-            urdf = load_robot_description("panda_description")
-            self.robot = pk.Robot.from_urdf(urdf=urdf)
-            self.eef_frame = "panda_hand"
+        if self.robot_description:
+            self.declare_parameter('description_name', "panda_description")
+            self.description_name = self.get_parameter('description_name').value
+            urdf = load_robot_description(self.description_name)
         else:
-            raise ValueError(f"Unknown embodiment '{self.muscle_embodiment}' for ManualAdapter. Please check your configuration.")
-        
+            self.declare_parameter('urdf_path', "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf")
+            urdf_path = self.get_parameter('urdf_path').value
+            urdf = yourdfpy.URDF.load(urdf_path)
+
+
+        self.robot = pk.Robot.from_urdf(urdf=urdf)
+        self.declare_parameter('eef_frame', "panda_hand")
+        self.eef_frame = self.get_parameter('eef_frame').value
+
         # 3. Warm up JAX Compiler
         dummy_se3 = jaxlie.SE3.identity()
         dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
@@ -173,7 +181,11 @@ class GR00TAdapter(BaseBrainAdapter):
         }
 
         # clean_command = command.replace("CMD:", "").strip() if command else ""
-        clean_command = command
+        if command is None:
+            # print("GR00T Adapter: command is None")
+            clean_command = ""
+        else:
+            clean_command = command
 
         if image is not None:
             formatted_image = image[np.newaxis, np.newaxis, :, :, :]
@@ -199,7 +211,10 @@ class GR00TAdapter(BaseBrainAdapter):
         original_joint = formatted_obs.pop("_internal_original_joint")
 
         if self.client:
-            raw_result = self.client.get_action(formatted_obs)
+            try:
+                raw_result = self.client.get_action(formatted_obs)
+            except Exception:
+                pass
             
             # ⚡ THE FIX: Extract the actual dictionary from the GR00T return tuple
             if isinstance(raw_result, (list, tuple)):

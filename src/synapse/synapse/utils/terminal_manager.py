@@ -64,7 +64,7 @@ class BackgroundTUI:
         stdscr.timeout(100)  # Refresh 10 Hz
 
         # Fixed split line for controls (dynamic based on terminal size is safer, but 8 is reliable)
-        split_line = 8
+        split_line = 10
 
         while self._running:
             stdscr.erase()
@@ -76,7 +76,7 @@ class BackgroundTUI:
 
             # --- 1. Draw UI ---
             try:
-                top_bar = " (Q)uit | (S)tart | (P)ause | (C)ommand ".center(max_x - 1)
+                top_bar = " (Q)uit | (S)tart | (P)ause | (C)ustom Sentence ".center(max_x - 1)
                 stdscr.addstr(0, 0, top_bar[:max_x - 1], curses.A_REVERSE)
                 
                 stdscr.addstr(2, 2, "[S]tart - Start the process"[:max_x - 3])
@@ -110,17 +110,14 @@ class BackgroundTUI:
                     if 0 <= key <= 255:
                         char = chr(key)
                         
-                        if char in ['q', 's', 'p', 'x', 'y', 'z', 't', 'r', 'w', 'X', 'Y', 'Z', 'T', 'R', 'W', 'e', 'E']:
-                            with self._lock:
-                                self.commands_queue.append(char)
-                        elif char == 'c':
+                        if char == 'c':
                             stdscr.nodelay(False)
                             curses.curs_set(1)
                             # ⚡ CRITICAL FIX: Removed the emoji. It breaks curses getstr offsets.
-                            stdscr.addstr(split_line, 2, "[CMD] Enter command: ")
+                            stdscr.addstr(split_line - 1, 2, "[CMD] Enter command: ")
                             curses.echo()
                             
-                            sentence_bytes = stdscr.getstr(split_line, 23, 50)
+                            sentence_bytes = stdscr.getstr(split_line - 1, 23, 50)
                             
                             curses.noecho()
                             curses.curs_set(0)
@@ -128,6 +125,9 @@ class BackgroundTUI:
                             
                             with self._lock:
                                 self.commands_queue.append(f"CMD:{sentence_bytes.decode('utf-8')}")
+                        elif char.isalpha():
+                            with self._lock:
+                                self.commands_queue.append(char)
             except Exception:
                 pass
 
@@ -146,98 +146,3 @@ class BackgroundTUI:
             if self.commands_queue:
                 return self.commands_queue.popleft()
             return None
-
-
-class KeyboardListener:
-    def __init__(self):
-        self.current_key = None
-        self._lock = threading.Lock()
-        
-        # Bypassing ROS 2 IO wrappers using your original approach
-        self.fd = os.open('/dev/tty', os.O_RDWR)
-        
-        self.old_settings = termios.tcgetattr(self.fd)
-        self.new_settings = termios.tcgetattr(self.fd)
-        # Disable canonical mode (require Enter) and echo
-        self.new_settings[3] = self.new_settings[3] & ~(termios.ICANON | termios.ECHO)
-        
-        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.new_settings)
-        
-        atexit.register(self._restore)
-        
-        self.thread = threading.Thread(target=self._listen, daemon=True)
-        self.thread.start()
-
-    def _restore(self):
-        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
-        os.close(self.fd)
-
-    def _listen(self):
-        while True:
-            try:
-                # Blocks until a key is pressed, but does not block ROS tick() 
-                # because this is running in a daemon thread.
-                char_bytes = os.read(self.fd, 1)
-                if not char_bytes:
-                    continue
-                
-                key = char_bytes.decode('utf-8', errors='ignore')
-                
-                # Ctrl+C
-                if key == '\x03': 
-                    with self._lock:
-                        self.current_key = 'q'
-                    break
-                    
-                # Sentence Input Mode
-                if key in ['c', 'C']:
-                    # Temporarily restore normal terminal settings
-                    termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
-                    
-                    sys.stdout.write("\033[s\033[8;1H\033[2K")
-                    sys.stdout.write(" 📝 Enter command sentence: ")
-                    sys.stdout.flush()
-                    
-                    # Read character by character until Enter is pressed
-                    sentence = ""
-                    while True:
-                        c = os.read(self.fd, 1).decode('utf-8', errors='ignore')
-                        if c == '\n' or c == '\r':
-                            break
-                        # Handle backspace
-                        if c == '\x7f':
-                            sentence = sentence[:-1]
-                            sys.stdout.write("\b \b")
-                            sys.stdout.flush()
-                        else:
-                            sentence += c
-                            sys.stdout.write(c)
-                            sys.stdout.flush()
-                        
-                    # Clear input line and restore cursor
-                    sys.stdout.write("\033[8;1H\033[2K\033[u")
-                    sys.stdout.flush()
-                    
-                    # Re-apply strict terminal settings
-                    termios.tcsetattr(self.fd, termios.TCSADRAIN, self.new_settings)
-                    
-                    with self._lock:
-                        self.current_key = f"CMD:{sentence.strip()}"
-                    continue
-                    
-                # Single Key Commands
-                if key.lower() in ['s', 'p', 'q', 'z', 'x', 'y', 'r', 't', 'w']:
-                    with self._lock:
-                        self.current_key = key
-                        
-            except Exception as e:
-                # If it fails, print immediately so it doesn't fail silently
-                sys.stdout.write(f"\033[1;1H Listener Error: {e} \n")
-                sys.stdout.flush()
-                break
-
-    def get_key_and_clear(self):
-        with self._lock:
-            key = self.current_key
-            self.current_key = None
-            return key

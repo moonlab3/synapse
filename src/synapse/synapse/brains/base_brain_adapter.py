@@ -7,12 +7,16 @@ class BaseBrainAdapter(ABC, Node):
         self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
         self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
 
+        self.declare_parameter('robot_description', True)
+        self.robot_description = self.get_parameter('robot_description').value
+
     def infer(self, obs_history: list) -> list:
         if not obs_history:
             return []
 
         # 1. Convert observations into model-specific formats (and apply FK if needed)
         formatted_obs = self._format_for_policy(obs_history)
+        # print(f"formatted obs: {formatted_obs}")
         
         # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
         raw_action = self._communicate_with_policy(formatted_obs)
