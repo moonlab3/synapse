@@ -17,6 +17,9 @@ class ActionChunkBuffer:
     def update_chunk(self, new_chunk: list):
         self.action_queue = list(new_chunk)
         
+    def get_length(self):
+        return len(self.action_queue)
+
     def pop_next_action(self):
         if self.action_queue:
             self.last_valid_action = self.action_queue.pop(0)
@@ -27,7 +30,7 @@ class ActionChunkBuffer:
         
         return None, "NO_DATA"
 
-class SynapseBTNode(Node):
+class SynapseMainNode(Node):
     def __init__(self):
         super().__init__('synapse_bt_node')
 
@@ -86,8 +89,9 @@ class SynapseBTNode(Node):
     def obs_callback(self, msg):
         # Native asynchronous buffering. Always holds the freshest data.
         #TODO: add image to obs dict 
-        self.last_command = self.to_brain if len(self.to_brain) > 2 else self.last_command
-        obs_dict = {"image": self.latest_image, "joint": msg, "command": self.last_command}  # Placeholder for actual image_msgs
+        # self.last_command = self.to_brain if len(self.to_brain) > 2 else self.last_command
+        # obs_dict = {"image": self.latest_image, "joint": msg, "command": self.last_command}  # Placeholder for actual image_msgs
+        obs_dict = {"image": self.latest_image, "joint": msg, "command": self.to_brain}  # Placeholder for actual image_msgs
         self.obs_buffer.append(obs_dict)
 
     def tick(self):
@@ -101,22 +105,22 @@ class SynapseBTNode(Node):
             self.terminal_ui.log(f"entered: {command_sentence}")
         else:
             match key:
-                case 'q':
+                case 'v':
                     self.terminal_ui.log("Quitting Synapse.")
                     self.pub_synapse_command.publish(String(data="QUIT"))
                     raise KeyboardInterrupt
-                case 's' if not self.is_ticking:
+                case 'x' if not self.is_ticking:
                     self.is_ticking = True
                     self.status = "Running"
                     self.pub_synapse_command.publish(String(data="START"))
-                    self.terminal_ui.update_status(self.status)
+                    # self.terminal_ui.update_status(self.status)
                     self.terminal_ui.log(f"🌲🌲BT Ticking Started ({self.tick_freq}Hz).▶️ Status: {self.status}")
-                case 'p' if self.is_ticking:
+                case 'z' if self.is_ticking:
                     self.is_ticking = False
                     self.status = "Paused"
                     self.pub_synapse_command.publish(String(data="PAUSE"))
-                    self.terminal_ui.update_status(self.status)
-                    self.terminal_ui.log(f"🌲🌲BT Paused. ⏸️ Status: {self.status}")
+                    # self.terminal_ui.update_status(self.status)
+                    self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
                 case 'e':
                     self.pub_synapse_command.publish(String(data="RESET"))
                 case None:
@@ -126,6 +130,7 @@ class SynapseBTNode(Node):
                     pass
                 
             
+        self.terminal_ui.update_status(self.status, len(self.obs_buffer), self.action_buffer.get_length(), self.to_brain)
         if not self.is_ticking:
             return
         # 2. Behavior Tree Execution Logic
@@ -156,7 +161,7 @@ class SynapseBTNode(Node):
 def main(args=None):
 
     rclpy.init(args=args)
-    node = SynapseBTNode()
+    node = SynapseMainNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

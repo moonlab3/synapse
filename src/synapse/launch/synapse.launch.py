@@ -8,12 +8,12 @@ from launch.substitutions import LaunchConfiguration
 
 def setup_launch(context: LaunchContext, *args, **kwargs):
     # 1. Resolve the config file name from the command line argument
-    config_filename = LaunchConfiguration('config_file').perform(context)
+    config_filename = LaunchConfiguration('config').perform(context)
 
     synapse_config_path = os.path.join(
         get_package_share_directory('synapse'),
         'config',
-        config_filename
+        config_filename + '.yaml'
     )
 
     # 2. Read the YAML to determine the muscle option
@@ -30,7 +30,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
         SetEnvironmentVariable('RCUTILS_CONSOLE_OUTPUT_FORMAT', '[{severity}]: {message}'),
         Node(
             package='synapse',
-            executable='synapse_bt_node.py',
+            executable='synapse_main_node.py',
             output='screen',
             prefix='gnome-terminal --wait --',
             # prefix="gnome-terminal --wait -- bash -c '\"$@\"; echo \"\"; echo \"Node exited or crashed. Press Enter to close...\"; read' bash ",
@@ -77,8 +77,8 @@ def generate_launch_description():
     return LaunchDescription([
         # Declare the command line argument
         DeclareLaunchArgument(
-            'config_file',
-            default_value='default.yaml',
+            'config',
+            default_value='default',
             description='Name of the YAML config file to load from the config directory'
         ),
         # Use OpaqueFunction to evaluate the argument before building the graph

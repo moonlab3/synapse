@@ -23,6 +23,8 @@ class StdoutRedirector:
 class BackgroundTUI:
     def __init__(self):
         self.status = "Idle"
+        self.obs_buffer_length = self.action_buffer_length = 0
+        self.current_command = ""
         self.log_buffer = deque(maxlen=50)
         self.commands_queue = deque()
         self._running = True
@@ -61,7 +63,7 @@ class BackgroundTUI:
     def _ui_loop(self, stdscr):
         curses.curs_set(0)
         stdscr.nodelay(True)
-        stdscr.timeout(100)  # Refresh 10 Hz
+        stdscr.timeout(50)
 
         # Fixed split line for controls (dynamic based on terminal size is safer, but 8 is reliable)
         split_line = 10
@@ -72,17 +74,20 @@ class BackgroundTUI:
 
             with self._lock:
                 current_status = self.status
+                obs_buffer_length = self.obs_buffer_length
+                action_buffer_length = self.action_buffer_length
+                current_command = self.current_command
                 visible_logs = list(self.log_buffer)
 
             # --- 1. Draw UI ---
             try:
-                top_bar = " (Q)uit | (S)tart | (P)ause | (C)ustom Sentence ".center(max_x - 1)
+                top_bar = " Free(Z)e | E(X)ecute | Lea(V)e | (C)ustom Sentence ".center(max_x - 1)
                 stdscr.addstr(0, 0, top_bar[:max_x - 1], curses.A_REVERSE)
                 
-                stdscr.addstr(2, 2, "[S]tart - Start the process"[:max_x - 3])
-                stdscr.addstr(3, 2, "[P]ause - Pause the process"[:max_x - 3])
-                stdscr.addstr(4, 2, "[C]     - Enter custom sentence"[:max_x - 3])
-                stdscr.addstr(6, 2, f"Status: {current_status}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(2, 2, f"Status: {current_status}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(3, 2, f"Current Command: {self.current_command}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(5, 2, f"Action Buffer: {action_buffer_length}"[:max_x - 3])
+                stdscr.addstr(6, 2, f"Observation Queue: {obs_buffer_length}"[:max_x - 3])
 
                 stdscr.hline(split_line, 0, curses.ACS_HLINE, max_x - 1)
             except curses.error:
@@ -137,9 +142,12 @@ class BackgroundTUI:
         with self._lock:
             self.log_buffer.append(f"[{timestamp}] {msg}")
 
-    def update_status(self, new_status):
+    def update_status(self, new_status, obs_buffer_length, action_buffer_length, command):
         with self._lock:
             self.status = new_status
+            self.obs_buffer_length = obs_buffer_length
+            self.action_buffer_length = action_buffer_length
+            self.current_command = command
 
     def get_command(self):
         with self._lock:

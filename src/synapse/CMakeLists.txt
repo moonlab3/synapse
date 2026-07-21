@@ -21,7 +21,7 @@ install(
 
 install(
   PROGRAMS
-  synapse/nodes/synapse_bt_node.py
+  synapse/synapse_main_node.py
   synapse/muscles/isaac_node.py
   synapse/muscles/dummy_muscle_node.py
   synapse/muscles/real_robot_node.py

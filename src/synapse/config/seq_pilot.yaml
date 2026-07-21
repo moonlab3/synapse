@@ -1,0 +1,29 @@
+scenario_name: "pilot"
+
+root:
+  type: "Sequence"
+  name: "Root"
+  children:
+    - type: "Action"
+      name: "initial"
+      adapter: "manual"
+      success_condition: "condition_b"
+    - type: "Selector"
+      name: "pickup_the_thing"
+      children:
+      - type: "Action"
+        name: "pickup_modelA"
+        adapter: "vla_a"
+        success_condition: "condition_c"
+        failure_condition: "condition_d"
+
+      - type: "Action"
+        name: "recovery"
+        adpater: "manual"
+        success_condition: "condition_c"
+    
+    - type: "Action"
+      name: "wrapup"
+      adapter: "vla_b"
+      success_condition: "condition_e"
+    

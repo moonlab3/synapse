@@ -81,7 +81,8 @@ class ManualAdapter(BaseBrainAdapter):
         
         _ = solve_ik_jit(self.robot, dummy_se3, dummy_idx, dummy_q) 
         print("⚡ JAX IK Compiler ready. Solving at microseconds.")
-        print("Manual Mode Key input: eef pose [x], [y], [z], [r]oll, pi[t]ch, ya[w]")
+        print("Manual Mode Key input: eef pose +x [s], +y [d], +z[f], +roll[w], +pitch[e], +yaw[r]")
+        print("                       eef pose -x [S], -y [D], -z[F], -roll[W], -pitch[E], -yaw[R]")
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
         """Convert jaxlie.SE3 to a list of [x, y, z, roll, pitch, yaw]."""
@@ -187,25 +188,26 @@ class ManualAdapter(BaseBrainAdapter):
         # Manual adapter acts as its own policy (bypassing ZMQ)
         command = formatted_obs.get("command")
         eef_pose = formatted_obs.get("eef_pose")
+        # print(f"command: [{command}]")
 
         if command is not None:
             if len(command) > 2:
-                # self.get_logger().info(f"📝 Received command sentence: [{command}]")
+                # print(f"📝 Received command sentence: [{command}]")
                 pass
             else:
                 match command:
-                    case 'z': eef_pose[2] += self.step_size
-                    case 'Z': eef_pose[2] -= self.step_size
-                    case 'x': eef_pose[0] += self.step_size
-                    case 'X': eef_pose[0] -= self.step_size
-                    case 'y': eef_pose[1] += self.step_size
-                    case 'Y': eef_pose[1] -= self.step_size
-                    case 'r': eef_pose[3] += self.step_size
-                    case 'R': eef_pose[3] -= self.step_size
-                    case 't': eef_pose[4] += self.step_size
-                    case 'T': eef_pose[4] -= self.step_size
-                    case 'w': eef_pose[5] += self.step_size
-                    case 'W': eef_pose[5] -= self.step_size
+                    case 's': eef_pose[0] += self.step_size
+                    case 'S': eef_pose[0] -= self.step_size
+                    case 'd': eef_pose[1] += self.step_size
+                    case 'D': eef_pose[1] -= self.step_size
+                    case 'f': eef_pose[2] += self.step_size
+                    case 'F': eef_pose[2] -= self.step_size
+                    case 'w': eef_pose[3] += self.step_size
+                    case 'W': eef_pose[3] -= self.step_size
+                    case 'e': eef_pose[4] += self.step_size
+                    case 'E': eef_pose[4] -= self.step_size
+                    case 'r': eef_pose[5] += self.step_size
+                    case 'R': eef_pose[5] -= self.step_size
                     case _:
                         pass
 

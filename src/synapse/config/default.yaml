@@ -1,15 +1,15 @@
 /**:
   ros__parameters:
     muscle_embodiment: "LIBERO_PANDA"
-    camera_config: "wrist_cam"
-    camera_topic: "/synapse/camera/image_raw"
+    # camera_config: "wrist_cam"
+    # camera_topic: "/synapse/camera/image_raw"
 
 synapse_bt_node:
   ros__parameters:
     bt_tick_frequency_hz: 50
     obs_buffer_window_size: 20
     brain_option: "MANUAL"
-    muscle_option: "ISAAC"
+    muscle_option: "DUMMY"
 
 manual_adapter:
   ros__parameters:
