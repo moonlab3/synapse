@@ -69,12 +69,12 @@ class IsaacNode(Node):
         super().__init__('isaac_node')
 
         # Declare ROS2 Parameters for configuration
-        self.declare_parameter('usd_path', '/home/rog-sf/vla/OXE.usd')
-        self.declare_parameter('robot_name', 'panda')
-        self.declare_parameter('robot_prim_path', '/World/franka_set/Franka/panda')
-        self.declare_parameter('publish_rate_hz', 100)
-        self.declare_parameter('camera_config', '')
-        self.declare_parameter('camera_topic', '/synapse/camera/image_raw')
+        # self.declare_parameter('usd_path', '/home/rog-sf/vla/OXE.usd')
+        # self.declare_parameter('robot_name', 'panda')
+        # self.declare_parameter('robot_prim_path', '/World/franka_set/Franka/panda')
+        # self.declare_parameter('publish_rate_hz', 100)
+        # self.declare_parameter('camera_config', '')
+        # self.declare_parameter('camera_topic', '/synapse/camera/image_raw')
 
         self.usd_path = self.get_parameter('usd_path').value
         self.robot_name = self.get_parameter('robot_name').value

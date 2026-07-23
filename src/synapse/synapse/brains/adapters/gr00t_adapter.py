@@ -75,13 +75,11 @@ def solve_ik_jit(
 # 🧠 VLA Brain Adapter (GR00T)
 # ==========================================
 class GR00TAdapter(BaseBrainAdapter):
-    def __init__(self):
-        super().__init__('gr00t_adapter')
+    def __init__(self, terminal, node_name="gr00t_adapter", parameter_overrides=None):
+        super().__init__(terminal, node_name, parameter_overrides)
+        terminal.wait_debug("gr00t init start")
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
-        
         # 1. Initialize GR00T Policy Client
-        self.declare_parameter('policy_ip', "0.0.0.0")
-        self.declare_parameter('policy_port', "8888")
         ip = self.get_parameter('policy_ip').value
         port = self.get_parameter('policy_port').value
         
@@ -95,17 +93,14 @@ class GR00TAdapter(BaseBrainAdapter):
             raise ValueError("NO POLICY CLIENT")
         
         if self.robot_description:
-            self.declare_parameter('description_name', "panda_description")
             self.description_name = self.get_parameter('description_name').value
             urdf = load_robot_description(self.description_name)
         else:
-            self.declare_parameter('urdf_path', "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf")
             urdf_path = self.get_parameter('urdf_path').value
             urdf = yourdfpy.URDF.load(urdf_path)
 
 
         self.robot = pk.Robot.from_urdf(urdf=urdf)
-        self.declare_parameter('eef_frame', "panda_hand")
         self.eef_frame = self.get_parameter('eef_frame').value
 
         # 3. Warm up JAX Compiler
@@ -180,9 +175,7 @@ class GR00TAdapter(BaseBrainAdapter):
             "gripper": np.array([[[normalized_gripper]]], dtype=np.float32)
         }
 
-        # clean_command = command.replace("CMD:", "").strip() if command else ""
         if command is None:
-            # print("GR00T Adapter: command is None")
             clean_command = ""
         else:
             clean_command = command
@@ -222,7 +215,6 @@ class GR00TAdapter(BaseBrainAdapter):
             else:
                 action_dict = raw_result
                 
-            # print(f"GR00T_ADAPTER: Extracted keys: {action_dict.keys()}")
         else:
             print("NO CLIENT")
             action_dict = {} # Fallback if client failed to load

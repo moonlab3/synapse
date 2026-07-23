@@ -32,25 +32,35 @@ class ActionChunkBuffer:
 
 class SynapseMainNode(Node):
     def __init__(self):
-        super().__init__('synapse_bt_node')
+        super().__init__(
+            'synapse_bt_node',
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+            )
 
-        self.declare_parameter('bt_tick_frequency_hz', 100)
-        self.declare_parameter('obs_buffer_window_size', 10)
-        self.declare_parameter('brain_option', "manual")
-        self.declare_parameter('muscle_option', "isaac")
-        self.declare_parameter('camera_topic', "/synapse/camera/image_raw")
+        self.terminal_ui = BackgroundTUI(self.get_parameter('debug_mode').value)
 
-        self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
         self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
-
         self.tick_freq = self.get_parameter('bt_tick_frequency_hz').value
         self.obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
         self.brain_option = self.get_parameter('brain_option').value
         self.muscle_option = self.get_parameter('muscle_option').value
         self.camera_topic = self.get_parameter('camera_topic').value
 
-        self.terminal_ui = BackgroundTUI()
-        self.brain_adapter = BrainSelector.get_brain(self.brain_option)
+        all_params = self.get_parameters_by_prefix('')
+        param_overrides = list(all_params.values())
+        # for param in param_overrides:
+        #     self.terminal_ui.log(f"name:[{param.name}] value:[{param.value}]")
+
+        self.terminal_ui.wait_debug("before brain selector")
+        self.brain_adapter = BrainSelector.get_brain(
+            self.terminal_ui,
+            brain_type=self.brain_option,
+            node_name=None,
+            parameter_overrides=param_overrides
+        )
+        self.terminal_ui.wait_debug("after brain selector")
+
 
         if self.brain_adapter is None:
             raise ValueError(f"Invalid brain option: {self.brain_option}")
@@ -63,10 +73,13 @@ class SynapseMainNode(Node):
         self.inference_executor = ThreadPoolExecutor(max_workers=1)  # Dedicated thread for inference
         self.is_ticking = False
         self.latest_image = None
+
+        self.terminal_ui.wait_debug("before ROS2 Interface setting")
         
         # ROS2 Interfaces
         self.sub_joint_states = self.create_subscription(JointState, '/synapse/joint_states', self.obs_callback, 10)
-        self.sub_camera = self.create_subscription(Image, self.camera_topic, self.image_callback, 10)
+        if self.camera_topic is not None:
+            self.sub_camera = self.create_subscription(Image, self.camera_topic, self.image_callback, 10)
         self.pub_brain_output = self.create_publisher(JointState, '/synapse/brain_output', 10)
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
         
@@ -77,8 +90,7 @@ class SynapseMainNode(Node):
         self.terminal_ui.log(f"⚙️️  Muscle Option: {self.muscle_option}")
         self.terminal_ui.log("🎉 Synapse BT Node Ready.")
 
-
-        self.to_brain = self.last_command = "pick up the box"
+        self.to_brain = "pick up the box"
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
@@ -87,20 +99,14 @@ class SynapseMainNode(Node):
         self.latest_image = frame
 
     def obs_callback(self, msg):
-        # Native asynchronous buffering. Always holds the freshest data.
-        #TODO: add image to obs dict 
-        # self.last_command = self.to_brain if len(self.to_brain) > 2 else self.last_command
-        # obs_dict = {"image": self.latest_image, "joint": msg, "command": self.last_command}  # Placeholder for actual image_msgs
         obs_dict = {"image": self.latest_image, "joint": msg, "command": self.to_brain}  # Placeholder for actual image_msgs
         self.obs_buffer.append(obs_dict)
 
     def tick(self):
-
-        # 1. System Input Checking
         key = self.terminal_ui.get_command()
         
         if key and key.startswith("CMD:"):
-            command_sentence = key[4:]  # Extract the command after "CMD:"
+            command_sentence = key[4:]
             self.to_brain = command_sentence
             self.terminal_ui.log(f"entered: {command_sentence}")
         else:
@@ -113,32 +119,28 @@ class SynapseMainNode(Node):
                     self.is_ticking = True
                     self.status = "Running"
                     self.pub_synapse_command.publish(String(data="START"))
-                    # self.terminal_ui.update_status(self.status)
                     self.terminal_ui.log(f"🌲🌲BT Ticking Started ({self.tick_freq}Hz).▶️ Status: {self.status}")
                 case 'z' if self.is_ticking:
                     self.is_ticking = False
                     self.status = "Paused"
                     self.pub_synapse_command.publish(String(data="PAUSE"))
-                    # self.terminal_ui.update_status(self.status)
                     self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
-                case 'e':
+                case 'q':
                     self.pub_synapse_command.publish(String(data="RESET"))
                 case None:
                     pass
                 case _:
                     self.to_brain = key
                     pass
-                
             
         self.terminal_ui.update_status(self.status, len(self.obs_buffer), self.action_buffer.get_length(), self.to_brain)
         if not self.is_ticking:
             return
+
         # 2. Behavior Tree Execution Logic
-        # Leaf: Format Observation
         if self.inference_future is not None and self.inference_future.done():
             new_action_chunk = self.inference_future.result()
             if new_action_chunk:
-                # self.terminal_ui.log("ACTION CHUNK IS UPDATED")
                 self.action_buffer.update_chunk(new_action_chunk)
             self.inference_future = None
         

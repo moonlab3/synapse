@@ -1,29 +1,36 @@
 scenario_name: "pilot"
-
-root:
+# ===================================
+# ADAPTER REGSTRY
+adapters:
+  manual_nav:
+    type: "MANUAL"
+  vla_pick:
+    type: "GR00T"
+  vla_place:
+    type: "GR00T"
+# ====================================
+# BEHAVIOR TREE STRUCTURE
+behavior_tree:
   type: "Sequence"
   name: "Root"
   children:
     - type: "Action"
       name: "initial"
-      adapter: "manual"
+      adapter: "manual_nav"
       success_condition: "condition_b"
     - type: "Selector"
       name: "pickup_the_thing"
       children:
       - type: "Action"
         name: "pickup_modelA"
-        adapter: "vla_a"
+        adapter: "vla_pick"
         success_condition: "condition_c"
         failure_condition: "condition_d"
-
       - type: "Action"
         name: "recovery"
-        adpater: "manual"
+        adpater: "manual_nav"
         success_condition: "condition_c"
-    
     - type: "Action"
       name: "wrapup"
-      adapter: "vla_b"
+      adapter: "vla_place"
       success_condition: "condition_e"
-    

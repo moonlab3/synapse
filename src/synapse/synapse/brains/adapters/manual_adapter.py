@@ -55,24 +55,21 @@ def solve_ik_jit(
     return sol[joint_var]
 
 class ManualAdapter(BaseBrainAdapter):
-    def __init__(self):
-        super().__init__('manual_adapter')
+    def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
+        super().__init__(terminal, node_name, parameter_overrides)
         self.step_size = 0.05
         # Conceptual state holding for FK/IK solvers
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
 
         if self.robot_description:
-            self.declare_parameter('description_name', "panda_description")
             self.description_name = self.get_parameter('description_name').value
             urdf = load_robot_description(self.description_name)
         else:
-            self.declare_parameter('urdf_path', "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf")
             urdf_path = self.get_parameter('urdf_path').value
             urdf = yourdfpy.URDF.load(urdf_path)
 
 
         self.robot = pk.Robot.from_urdf(urdf=urdf)
-        self.declare_parameter('eef_frame', "panda_hand")
         self.eef_frame = self.get_parameter('eef_frame').value
 
         dummy_se3 = jaxlie.SE3.identity()
@@ -188,11 +185,9 @@ class ManualAdapter(BaseBrainAdapter):
         # Manual adapter acts as its own policy (bypassing ZMQ)
         command = formatted_obs.get("command")
         eef_pose = formatted_obs.get("eef_pose")
-        # print(f"command: [{command}]")
 
         if command is not None:
             if len(command) > 2:
-                # print(f"📝 Received command sentence: [{command}]")
                 pass
             else:
                 match command:
@@ -212,9 +207,6 @@ class ManualAdapter(BaseBrainAdapter):
                         pass
 
         formatted_obs["eef_pose"] = eef_pose
-        _before = ",".join(f"{v:.3f}" for v in self.current_eef_pose)
-        _after = ",".join(f"{v:.3f}" for v in eef_pose)
-        # self.get_logger().info(f"📝 EEF: [{_before}]->[{_after}]")
         self.current_eef_pose = eef_pose
         return formatted_obs
 

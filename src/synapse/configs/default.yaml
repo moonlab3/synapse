@@ -1,8 +1,6 @@
 /**:
   ros__parameters:
     muscle_embodiment: "LIBERO_PANDA"
-    # camera_config: "wrist_cam"
-    # camera_topic: "/synapse/camera/image_raw"
 
 synapse_bt_node:
   ros__parameters:
@@ -16,10 +14,3 @@ manual_adapter:
     robot_description: True
     description_name: "panda_description"
     eef_frame: "panda_hand"
-
-isaac_node:
-  ros__parameters:
-    publish_rate_hz: 100
-    usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
-    robot_name: "panda"
-    robot_prim_path: "/World/franka_set/Franka/panda"

@@ -4,13 +4,23 @@ from .adapters.manual_adapter import ManualAdapter
 class BrainSelector:
 
     @staticmethod
-    def get_brain(brain_type):
+    def get_brain(terminal, brain_type: str, node_name: str=None, parameter_overrides: list = None):
+
+        type = brain_type.upper()
         try:
-            match brain_type:
+            match type:
                 case 'MANUAL':
-                    return ManualAdapter()
+                    _node = node_name if node_name else "manual_adapter"
+                    return ManualAdapter(
+                        terminal,
+                        node_name=_node,
+                        parameter_overrides=parameter_overrides)
                 case 'GR00T':
-                    return GR00TAdapter()
+                    _node = node_name if node_name else "gr00t_adapter"
+                    return GR00TAdapter(
+                        terminal,
+                        node_name=_node,
+                        parameter_overrides=parameter_overrides)
                 case _:
                     return None
         except Exception as e:

@@ -7,25 +7,25 @@ from launch.actions import SetEnvironmentVariable, DeclareLaunchArgument, Opaque
 from launch.substitutions import LaunchConfiguration
 
 def setup_launch(context: LaunchContext, *args, **kwargs):
-    # 1. Resolve the config file name from the command line argument
-    config_filename = LaunchConfiguration('config').perform(context)
+    config_nickname = LaunchConfiguration('config').perform(context)
+    debug_arg = LaunchConfiguration('debug')
 
     synapse_config_path = os.path.join(
-        get_package_share_directory('synapse'),
-        'config',
-        config_filename + '.yaml'
+        get_package_share_directory('synapse'), 
+        'configs', 
+        'config_collections.yaml'
     )
 
     # 2. Read the YAML to determine the muscle option
     with open(synapse_config_path, 'r') as f:
         config = yaml.safe_load(f)
-        
-    try:
-        muscle_option = config['synapse_bt_node']['ros__parameters']['muscle_option']
-    except KeyError:
-        muscle_option = "DUMMY"  
 
-    # 3. Base Nodes list
+    if config_nickname not in config:
+        raise ValueError(f"Nickname '{config_nickname}' not found in config_collections.yaml")
+
+    active_config = config[config_nickname]
+    muscle_option = active_config.get('muscle_option', 'DUMMY')
+
     nodes = [
         SetEnvironmentVariable('RCUTILS_CONSOLE_OUTPUT_FORMAT', '[{severity}]: {message}'),
         Node(
@@ -34,7 +34,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
             output='screen',
             prefix='gnome-terminal --wait --',
             # prefix="gnome-terminal --wait -- bash -c '\"$@\"; echo \"\"; echo \"Node exited or crashed. Press Enter to close...\"; read' bash ",
-            parameters=[synapse_config_path],
+            parameters=[active_config, {'debug_mode': debug_arg}],
         )
     ]
 
@@ -47,7 +47,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
                     executable='dummy_muscle_node.py',
                     output='screen',
                     emulate_tty=True,
-                    parameters=[synapse_config_path],
+                    parameters=[active_config],
                 )
             )
         case "ISAAC":
@@ -57,7 +57,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
                     executable='isaac_node.py',
                     output='screen',
                     emulate_tty=True,
-                    parameters=[synapse_config_path],
+                    parameters=[active_config],
                 )
             )
         case "REAL_ROBOT":
@@ -67,7 +67,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
                     executable='real_robot_node.py',
                     output='screen',
                     emulate_tty=True,
-                    parameters=[synapse_config_path],
+                    parameters=[active_config],
                 )
             )
             
@@ -79,7 +79,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'config',
             default_value='default',
-            description='Name of the YAML config file to load from the config directory'
+            description='Nickname of the configuration to load'
+        ),
+        DeclareLaunchArgument(
+            'debug',
+            default_value='false',
+            description='Debug mode'
         ),
         # Use OpaqueFunction to evaluate the argument before building the graph
         OpaqueFunction(function=setup_launch)

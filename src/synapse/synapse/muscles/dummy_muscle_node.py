@@ -4,13 +4,18 @@ import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import JointState
+from rclpy.duration import Duration
 
 class DummyMuscleNode(Node):
-    def __init__(self):
-        super().__init__('dummy_muscle_node')
+    def __init__(self, node_name="dummy_muscle_node", parameter_overrides=None):
+        super().__init__(
+            node_name,
+            parameter_overrides=parameter_overrides,
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+        )
         
         # Increased default rate to 100Hz to match the BT Node tick frequency
-        self.declare_parameter('publish_rate_hz', 100)
         freq = self.get_parameter('publish_rate_hz').value
 
         self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
@@ -27,7 +32,17 @@ class DummyMuscleNode(Node):
         self.current_joints = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.target = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+
         self.get_logger().info(f"💪 Dummy Muscle Node Ready. Publishing at {freq}Hz.")
+
+        # self.add_on_set_parameters_callback(self.on_parameter_change)
+    # def on_parameter_change(self, params):
+    #     for param in params:
+    #         if param.name == 'publish_rate_hz':
+    #             self.timer.timer_period_ns = 1.0 / param.value
+    #             self.timer.reset()
+    #             break
+
 
     def synapse_command_callback(self, msg):
         if msg.data == "QUIT":

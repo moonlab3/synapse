@@ -1,8 +1,6 @@
-import termios
 import threading
 import atexit
 import sys
-import os
 import curses
 import time
 from collections import deque
@@ -21,13 +19,14 @@ class StdoutRedirector:
         pass
 
 class BackgroundTUI:
-    def __init__(self):
+    def __init__(self, debug_mode=False):
         self.status = "Idle"
         self.obs_buffer_length = self.action_buffer_length = 0
         self.current_command = ""
         self.log_buffer = deque(maxlen=50)
         self.commands_queue = deque()
         self._running = True
+        self.debug_mode = debug_mode
         
         # Lock to prevent ROS 2 main thread and UI background thread from colliding
         self._lock = threading.Lock()
@@ -42,6 +41,16 @@ class BackgroundTUI:
         self.thread.start()
         
         atexit.register(self._cleanup)
+
+    def wait_debug(self, msg):
+        if self.debug_mode:
+            mm = f"[DEBUG] Press any key to continue. [{msg}]"
+            self.log(mm)
+            while self._running:
+                key = self.get_command()
+                if key is not None:
+                    return key
+                time.sleep(0.05)
 
     def _cleanup(self):
         self._running = False
@@ -85,7 +94,7 @@ class BackgroundTUI:
                 stdscr.addstr(0, 0, top_bar[:max_x - 1], curses.A_REVERSE)
                 
                 stdscr.addstr(2, 2, f"Status: {current_status}"[:max_x - 3], curses.A_BOLD)
-                stdscr.addstr(3, 2, f"Current Command: {self.current_command}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(3, 2, f"Current Command: {current_command}"[:max_x - 3], curses.A_BOLD)
                 stdscr.addstr(5, 2, f"Action Buffer: {action_buffer_length}"[:max_x - 3])
                 stdscr.addstr(6, 2, f"Observation Queue: {obs_buffer_length}"[:max_x - 3])
 

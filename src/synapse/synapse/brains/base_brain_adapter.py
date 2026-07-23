@@ -2,13 +2,17 @@ from abc import ABC, abstractmethod
 from rclpy.node import Node
 
 class BaseBrainAdapter(ABC, Node):
-    def __init__(self, node_name=None):
-        super().__init__(node_name)
-        self.declare_parameter('muscle_embodiment', "LIBERO_PANDA")  # Placeholder for future muscle embodiment options
+    def __init__(self, terminal, node_name=None, parameter_overrides=None):
+        super().__init__(
+            node_name,
+            parameter_overrides=parameter_overrides,
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+        )
         self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
 
-        self.declare_parameter('robot_description', True)
         self.robot_description = self.get_parameter('robot_description').value
+        terminal.wait_debug("BaseBrain Initiation Done")
 
     def infer(self, obs_history: list) -> list:
         if not obs_history:
@@ -16,18 +20,15 @@ class BaseBrainAdapter(ABC, Node):
 
         # 1. Convert observations into model-specific formats (and apply FK if needed)
         formatted_obs = self._format_for_policy(obs_history)
-        # print(f"formatted obs: {formatted_obs}")
         
         # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
         raw_action = self._communicate_with_policy(formatted_obs)
-        # print(f"raw action type:{type(raw_action)}, len:{len(raw_action)}")
         
         # 3. Format action for muscle wrapper (and apply IK if needed)
         action_chunk = self._format_for_muscle(raw_action)
         if action_chunk and action_chunk[0].position:
             _chunk = ", ".join(f"{v:.3f}" for v in action_chunk[0].position)
         
-        # print(f"final result: {action_chunk}")
         return action_chunk
 
     @abstractmethod
