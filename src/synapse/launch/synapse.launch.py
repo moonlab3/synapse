@@ -47,6 +47,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
                     executable='dummy_muscle_node.py',
                     output='screen',
                     emulate_tty=True,
+                    # parameters=[synapse_config_path],
                     parameters=[active_config],
                 )
             )

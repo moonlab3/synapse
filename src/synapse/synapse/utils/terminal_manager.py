@@ -22,7 +22,7 @@ class BackgroundTUI:
     def __init__(self, debug_mode=False):
         self.status = "Idle"
         self.obs_buffer_length = self.action_buffer_length = 0
-        self.current_command = ""
+        self.current_command = self.brain_node_map = self.running_brain = ""
         self.log_buffer = deque(maxlen=50)
         self.commands_queue = deque()
         self._running = True
@@ -86,6 +86,8 @@ class BackgroundTUI:
                 obs_buffer_length = self.obs_buffer_length
                 action_buffer_length = self.action_buffer_length
                 current_command = self.current_command
+                node_map = self.brain_node_map
+                running_brain = self.running_brain
                 visible_logs = list(self.log_buffer)
 
             # --- 1. Draw UI ---
@@ -93,10 +95,12 @@ class BackgroundTUI:
                 top_bar = " Free(Z)e | E(X)ecute | Lea(V)e | (C)ustom Sentence ".center(max_x - 1)
                 stdscr.addstr(0, 0, top_bar[:max_x - 1], curses.A_REVERSE)
                 
-                stdscr.addstr(2, 2, f"Status: {current_status}"[:max_x - 3], curses.A_BOLD)
-                stdscr.addstr(3, 2, f"Current Command: {current_command}"[:max_x - 3], curses.A_BOLD)
-                stdscr.addstr(5, 2, f"Action Buffer: {action_buffer_length}"[:max_x - 3])
-                stdscr.addstr(6, 2, f"Observation Queue: {obs_buffer_length}"[:max_x - 3])
+                stdscr.addstr(1, 2, f"{node_map}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(3, 2, f"Status: {current_status}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(4, 2, f"Running: {running_brain}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(5, 2, f"Current Command: {current_command}"[:max_x - 3], curses.A_BOLD)
+                stdscr.addstr(6, 2, f"Action Buffer: {action_buffer_length}"[:max_x - 3])
+                stdscr.addstr(7, 2, f"Observation Queue: {obs_buffer_length}"[:max_x - 3])
 
                 stdscr.hline(split_line, 0, curses.ACS_HLINE, max_x - 1)
             except curses.error:
@@ -123,6 +127,7 @@ class BackgroundTUI:
                     # Catch terminal resize keys and non-ASCII to prevent chr() crash
                     if 0 <= key <= 255:
                         char = chr(key)
+                        # self.log(f"key:[{char}]")
                         
                         if char == 'c':
                             stdscr.nodelay(False)
@@ -139,7 +144,7 @@ class BackgroundTUI:
                             
                             with self._lock:
                                 self.commands_queue.append(f"CMD:{sentence_bytes.decode('utf-8')}")
-                        elif char.isalpha():
+                        elif char.isalpha() or char.isdigit():
                             with self._lock:
                                 self.commands_queue.append(char)
             except Exception:
@@ -151,12 +156,14 @@ class BackgroundTUI:
         with self._lock:
             self.log_buffer.append(f"[{timestamp}] {msg}")
 
-    def update_status(self, new_status, obs_buffer_length, action_buffer_length, command):
+    def update_status(self, new_status, obs_buffer_length, action_buffer_length, command, node_map, running_brain):
         with self._lock:
             self.status = new_status
             self.obs_buffer_length = obs_buffer_length
             self.action_buffer_length = action_buffer_length
             self.current_command = command
+            self.brain_node_map = node_map
+            self.running_brain = running_brain
 
     def get_command(self):
         with self._lock:

@@ -46,24 +46,47 @@ class SynapseMainNode(Node):
         self.brain_option = self.get_parameter('brain_option').value
         self.muscle_option = self.get_parameter('muscle_option').value
         self.camera_topic = self.get_parameter('camera_topic').value
+        registry_list = self.get_parameter('brain_registry').value
 
         all_params = self.get_parameters_by_prefix('')
         param_overrides = list(all_params.values())
         # for param in param_overrides:
         #     self.terminal_ui.log(f"name:[{param.name}] value:[{param.value}]")
 
-        self.terminal_ui.wait_debug("before brain selector")
-        self.brain_adapter = BrainSelector.get_brain(
-            self.terminal_ui,
-            brain_type=self.brain_option,
-            node_name=None,
-            parameter_overrides=param_overrides
-        )
+        self.brain_adapters = {}
+        self.terminal_ui.wait_debug("BEFORE brain_adapters")
+
+        for entry in registry_list:
+            node_name, adapter_type = entry.split(':')
+            self.terminal_ui.wait_debug(f"🧠 Booting adapter: {node_name} [Type: {adapter_type}]")
+            self.brain_adapters[node_name] = BrainSelector.get_brain(
+                self.terminal_ui,
+                brain_type=adapter_type,
+                node_name=node_name,
+                parameter_overrides=param_overrides
+            )
+
+        self.brain_node_list = list(self.brain_adapters.keys())
+        self.brain_node_num = len(self.brain_adapters)
+        self.brain_node_map = "Brain Adapters "
+        self.running_brain = self.brain_node_list[0]
+
+        for i, name in enumerate(self.brain_node_list):
+            self.brain_node_map += f"[{i+1}: {name}]  "
+        
+        # self.brain_adapter = BrainSelector.get_brain(
+        #     self.terminal_ui,
+        #     brain_type=self.brain_option,
+        #     node_name=None,
+        #     parameter_overrides=param_overrides
+        # )
         self.terminal_ui.wait_debug("after brain selector")
 
-
-        if self.brain_adapter is None:
+        if not self.brain_adapters:
             raise ValueError(f"Invalid brain option: {self.brain_option}")
+
+        # if self.brain_adapter is None:
+        #     raise ValueError(f"Invalid brain option: {self.brain_option}")
 
         self.action_buffer = ActionChunkBuffer()  # Manage action chunks from the brain
         self.obs_buffer = deque(maxlen=self.obs_buffer_size)
@@ -89,11 +112,13 @@ class SynapseMainNode(Node):
         self.terminal_ui.log(f"⚙️️  Hardware Setup: {self.muscle_embodiment}")
         self.terminal_ui.log(f"⚙️️  Muscle Option: {self.muscle_option}")
         self.terminal_ui.log("🎉 Synapse BT Node Ready.")
+        self.terminal_ui.wait_debug("DONE DONE DONE")
 
         self.to_brain = "pick up the box"
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
+        
     def image_callback(self, msg: Image):
         frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
         self.latest_image = frame
@@ -127,13 +152,24 @@ class SynapseMainNode(Node):
                     self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
                 case 'q':
                     self.pub_synapse_command.publish(String(data="RESET"))
+                case '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0':
+                    idx = int(key) - 1
+                    self.running_brain = self.brain_node_list[idx]
+                    self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
                 case None:
                     pass
                 case _:
                     self.to_brain = key
                     pass
             
-        self.terminal_ui.update_status(self.status, len(self.obs_buffer), self.action_buffer.get_length(), self.to_brain)
+        self.terminal_ui.update_status(
+            self.status, 
+            len(self.obs_buffer), 
+            self.action_buffer.get_length(), 
+            self.to_brain, 
+            self.brain_node_map, 
+            self.running_brain
+        )
         if not self.is_ticking:
             return
 
@@ -147,7 +183,8 @@ class SynapseMainNode(Node):
         if self.inference_future is None and len(self.obs_buffer) > 0:
              # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
-            self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
+            # self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
+            self.inference_future = self.inference_executor.submit(self.brain_adapters[self.running_brain].infer, historical_obs)
 
         action, status = self.action_buffer.pop_next_action()
 

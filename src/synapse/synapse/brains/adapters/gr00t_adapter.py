@@ -80,8 +80,9 @@ class GR00TAdapter(BaseBrainAdapter):
         terminal.wait_debug("gr00t init start")
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
         # 1. Initialize GR00T Policy Client
-        ip = self.get_parameter('policy_ip').value
-        port = self.get_parameter('policy_port').value
+
+        ip = self.get_parameter(f"{self.get_name()}.policy_ip").value
+        port = self.get_parameter(f"{self.get_name()}.policy_port").value
         
         if PolicyClient:
             self.client = PolicyClient(ip, port)
