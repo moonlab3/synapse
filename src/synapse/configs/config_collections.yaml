@@ -84,12 +84,14 @@ fairino_manual_real:
 
 multi_brain_test:
   # basic
+  scenario_filename: "scn_pilot.yaml"
   muscle_embodiment: "LIBERO_PANDA"
   camera_config: "wrist_cam"
   camera_topic: "/synapse/camera/image_raw"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
 
+  # muscle_option: "ISAAC"
   muscle_option: "DUMMY"
   brain_option: "GR00T"
 
@@ -106,10 +108,14 @@ multi_brain_test:
   vla_pick:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
+    default_command: "pick up the blue box"
   vla_place:
     policy_ip: "172.16.6.101"
     policy_port: "8889"
-  
+    default_command: "place the box on the tray"
 
-  # dummy
   publish_rate_hz: 100
+  # isaac
+  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
+  robot_name: "panda"
+  robot_prim_path: "/World/franka_set/Franka/panda"

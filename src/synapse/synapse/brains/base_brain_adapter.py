@@ -14,12 +14,12 @@ class BaseBrainAdapter(ABC, Node):
         self.robot_description = self.get_parameter('robot_description').value
         terminal.wait_debug("BaseBrain Initiation Done")
 
-    def infer(self, obs_history: list) -> list:
+    def infer(self, obs_history: list, get_default: False) -> list:
         if not obs_history:
             return []
 
         # 1. Convert observations into model-specific formats (and apply FK if needed)
-        formatted_obs = self._format_for_policy(obs_history)
+        formatted_obs = self._format_for_policy(obs_history, get_default)
         
         # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
         raw_action = self._communicate_with_policy(formatted_obs)

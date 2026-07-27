@@ -77,12 +77,14 @@ def solve_ik_jit(
 class GR00TAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="gr00t_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        terminal.wait_debug("gr00t init start")
+        # terminal.wait_debug("gr00t init start")
         self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
         # 1. Initialize GR00T Policy Client
 
         ip = self.get_parameter(f"{self.get_name()}.policy_ip").value
         port = self.get_parameter(f"{self.get_name()}.policy_port").value
+        self.default_command = self.get_parameter(f"{self.get_name()}.default_command").value
+
         
         if PolicyClient:
             self.client = PolicyClient(ip, port)
@@ -150,11 +152,14 @@ class GR00TAdapter(BaseBrainAdapter):
         self.current_eef_pose = self._se3_to_list(eef_se3)
         return self.current_eef_pose.copy()
 
-    def _format_for_policy(self, obs_history: list) -> dict:
+    def _format_for_policy(self, obs_history: list, get_default: False) -> dict:
         latest_obs = obs_history[-1]
         joint_msg = latest_obs.get("joint")
-        command = latest_obs.get("command")
         image = latest_obs.get("image") 
+        if get_default:
+            command = self.default_command
+        else:
+            command = latest_obs.get("command")
         
         # 1. Get Cartesian Pose
         x, y, z, roll, pitch, yaw = self._forward_kinematics(joint_msg)

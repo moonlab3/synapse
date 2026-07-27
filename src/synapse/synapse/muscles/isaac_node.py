@@ -65,8 +65,13 @@ from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import omni.usd
 
 class IsaacNode(Node):
-    def __init__(self):
-        super().__init__('isaac_node')
+    def __init__(self, node_name="isaac_node", parameter_overrides=None):
+        super().__init__(
+            node_name,
+            parameter_overrides=parameter_overrides,
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+        )
 
         # Declare ROS2 Parameters for configuration
         # self.declare_parameter('usd_path', '/home/rog-sf/vla/OXE.usd')

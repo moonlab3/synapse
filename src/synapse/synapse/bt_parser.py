@@ -1,12 +1,13 @@
 import yaml
 import py_trees
-from synapse.brains.brain_selector import BrainSelector
 
 class RunAdapterBehavior(py_trees.behaviour.Behaviour):
-    def __init__(self, name, adapter_key, bt_node_reference):
+    def __init__(self, name, adapter_key, success_cond, failure_cond, bt_node_reference):
         super().__init__(name)
         self.adapter_key = adapter_key
         self.node = bt_node_reference # Reference to SynapseBTNode to access buffers
+        self.success_cond = success_cond
+        self.failure_cond = failure_cond
 
     def update(self):
         # This is called by the py_trees tick (~10Hz)
@@ -36,9 +37,10 @@ class RunAdapterBehavior(py_trees.behaviour.Behaviour):
         return py_trees.common.Status.RUNNING
 
 class ScenarioParser:
-    def __init__(self, synapse_node):
+    def __init__(self, synapse_node, terminal):
         # We pass the main ROS node so the BT actions can access buffers
         self.node = synapse_node 
+        self.terminal_ui = terminal
 
     def parse(self, file_path: str) -> tuple[dict, py_trees.behaviour.Behaviour]:
         """
@@ -53,20 +55,6 @@ class ScenarioParser:
         
         return bt_root
 
-    def _build_adapters(self, adapters_config: dict) -> dict:
-        adapters = {}
-        for adapter_key, config in adapters_config.items():
-            adapter_type = config.get('type')
-            
-            # The adapter_key matches the node_name defined in the ROS 2 yaml
-            adapters[adapter_key] = BrainSelector.get_brain(
-                brain_type=adapter_type, 
-                node_name=adapter_key
-            )
-            self.node.terminal_ui.log(f"🧠 Instantiated adapter: {adapter_key} [{adapter_type}]")
-            
-        return adapters
-
     def _build_node(self, node_config: dict) -> py_trees.behaviour.Behaviour:
         if not node_config:
             raise ValueError("Encountered empty node configuration in YAML.")
@@ -74,21 +62,25 @@ class ScenarioParser:
         node_type = node_config.get('type')
         node_name = node_config.get('name', 'unnamed_node')
 
+        self.terminal_ui.wait_debug(f"THIS NODE[{node_name}:{node_type}]")
         # Build Composites (Branches)
         if node_type == "Sequence":
             bt_node = py_trees.composites.Sequence(name=node_name, memory=True)
             for child_config in node_config.get('children', []):
                 bt_node.add_child(self._build_node(child_config))
+            self.terminal_ui.wait_debug(f"return Sequence[{node_name}]")
             return bt_node
 
         elif node_type == "Selector":
             bt_node = py_trees.composites.Selector(name=node_name, memory=False)
             for child_config in node_config.get('children', []):
                 bt_node.add_child(self._build_node(child_config))
+            self.terminal_ui.wait_debug(f"return Selector[{node_name}]")
             return bt_node
 
         # Build Leaves (Actions)
         elif node_type == "Action":
+            self.terminal_ui.wait_debug(f"return ACTION[{node_name}]")
             return RunAdapterBehavior(
                 name=node_name,
                 adapter_key=node_config['adapter'],

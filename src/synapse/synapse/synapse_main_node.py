@@ -4,10 +4,14 @@ import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import JointState, Image
+from collections import deque
 from synapse.utils.terminal_manager import BackgroundTUI
 from concurrent.futures import ThreadPoolExecutor
 from synapse.brains.brain_selector import BrainSelector
-from collections import deque
+from bt_parser import ScenarioParser
+import py_trees
+import os
+from ament_index_python.packages import get_package_share_directory
 
 class ActionChunkBuffer:
     def __init__(self):
@@ -47,18 +51,16 @@ class SynapseMainNode(Node):
         self.muscle_option = self.get_parameter('muscle_option').value
         self.camera_topic = self.get_parameter('camera_topic').value
         registry_list = self.get_parameter('brain_registry').value
+        scenario_filename = self.get_parameter('scenario_filename').value
 
         all_params = self.get_parameters_by_prefix('')
         param_overrides = list(all_params.values())
-        # for param in param_overrides:
-        #     self.terminal_ui.log(f"name:[{param.name}] value:[{param.value}]")
 
         self.brain_adapters = {}
-        self.terminal_ui.wait_debug("BEFORE brain_adapters")
+        # self.terminal_ui.wait_debug("BEFORE brain_adapters")
 
         for entry in registry_list:
             node_name, adapter_type = entry.split(':')
-            self.terminal_ui.wait_debug(f"🧠 Booting adapter: {node_name} [Type: {adapter_type}]")
             self.brain_adapters[node_name] = BrainSelector.get_brain(
                 self.terminal_ui,
                 brain_type=adapter_type,
@@ -70,23 +72,19 @@ class SynapseMainNode(Node):
         self.brain_node_num = len(self.brain_adapters)
         self.brain_node_map = "Brain Adapters "
         self.running_brain = self.brain_node_list[0]
-
         for i, name in enumerate(self.brain_node_list):
             self.brain_node_map += f"[{i+1}: {name}]  "
-        
-        # self.brain_adapter = BrainSelector.get_brain(
-        #     self.terminal_ui,
-        #     brain_type=self.brain_option,
-        #     node_name=None,
-        #     parameter_overrides=param_overrides
-        # )
-        self.terminal_ui.wait_debug("after brain selector")
 
         if not self.brain_adapters:
             raise ValueError(f"Invalid brain option: {self.brain_option}")
 
-        # if self.brain_adapter is None:
-        #     raise ValueError(f"Invalid brain option: {self.brain_option}")
+        parser = ScenarioParser(synapse_node=self, terminal=self.terminal_ui)
+        self.terminal_ui.wait_debug("before tree parsing")
+        scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
+        self.bt_root = parser.parse(scenario_path)
+        self.terminal_ui.wait_debug("after tree parsing")
+        self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
+        self.terminal_ui.log(f"🌲🌲 Behaviour Tree loaded from {scenario_filename}")
 
         self.action_buffer = ActionChunkBuffer()  # Manage action chunks from the brain
         self.obs_buffer = deque(maxlen=self.obs_buffer_size)
@@ -115,6 +113,7 @@ class SynapseMainNode(Node):
         self.terminal_ui.wait_debug("DONE DONE DONE")
 
         self.to_brain = "pick up the box"
+        self.running_default = False
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
@@ -133,6 +132,7 @@ class SynapseMainNode(Node):
         if key and key.startswith("CMD:"):
             command_sentence = key[4:]
             self.to_brain = command_sentence
+            self.running_default = False
             self.terminal_ui.log(f"entered: {command_sentence}")
         else:
             match key:
@@ -156,11 +156,14 @@ class SynapseMainNode(Node):
                     idx = int(key) - 1
                     self.running_brain = self.brain_node_list[idx]
                     self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
+                    self.running_default = True
+                    
                 case None:
+                    # if len(self.to_brain) < 2:
+                        # self.to_brain = None
                     pass
                 case _:
                     self.to_brain = key
-                    pass
             
         self.terminal_ui.update_status(
             self.status, 
@@ -184,7 +187,7 @@ class SynapseMainNode(Node):
              # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
             # self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
-            self.inference_future = self.inference_executor.submit(self.brain_adapters[self.running_brain].infer, historical_obs)
+            self.inference_future = self.inference_executor.submit(self.brain_adapters[self.running_brain].infer, historical_obs, self.running_default)
 
         action, status = self.action_buffer.pop_next_action()
 

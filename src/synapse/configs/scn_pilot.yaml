@@ -29,7 +29,7 @@ behavior_tree:
         failure_condition: "condition_d"
       - type: "Action"
         name: "recovery"
-        adpater: "manual_nav"
+        adapter: "manual_nav"
         success_condition: "condition_c"
     - type: "Action"
       name: "wrapup"

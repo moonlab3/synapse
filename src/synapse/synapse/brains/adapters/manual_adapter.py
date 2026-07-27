@@ -68,7 +68,6 @@ class ManualAdapter(BaseBrainAdapter):
             urdf_path = self.get_parameter('urdf_path').value
             urdf = yourdfpy.URDF.load(urdf_path)
 
-
         self.robot = pk.Robot.from_urdf(urdf=urdf)
         self.eef_frame = self.get_parameter('eef_frame').value
 
@@ -165,7 +164,7 @@ class ManualAdapter(BaseBrainAdapter):
         
         return out_msg
         
-    def _format_for_policy(self, obs_history: list) -> dict:
+    def _format_for_policy(self, obs_history: list, get_default:False) -> dict:
         # Extract the most recent observation from the buffer history
         latest_obs = obs_history[-1]
         joint_msg = latest_obs.get("joint")
