@@ -13,7 +13,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
     synapse_config_path = os.path.join(
         get_package_share_directory('synapse'), 
         'configs', 
-        'config_collections.yaml'
+        'config_main.yaml'
     )
 
     # 2. Read the YAML to determine the muscle option
@@ -21,7 +21,7 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
         config = yaml.safe_load(f)
 
     if config_nickname not in config:
-        raise ValueError(f"Nickname '{config_nickname}' not found in config_collections.yaml")
+        raise ValueError(f"Nickname '{config_nickname}' not found in config_main.yaml")
 
     active_config = config[config_nickname]
     muscle_option = active_config.get('muscle_option', 'DUMMY')

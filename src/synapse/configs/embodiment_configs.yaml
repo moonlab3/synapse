@@ -1,0 +1,142 @@
+# config/embodiment_config.yaml
+SINGLE_FR5:
+  table_height: 0.85
+  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.usd"
+  robots:
+    fr5:
+      type: "manipulator"
+      yourdfpy_description: false
+      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
+      name: "fairino5_v6_robot"
+      states: "/synapse/joint_states/fr5"
+      target: "/synapse/tartget/fr5"
+      dof: 6
+      joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
+      eef_frame: "wrist3_link"
+      prim_path: "/World/fairino5_v6_robot"
+
+SINGLE_FR5_V5HAND:
+  table_height: 0.85
+  robots:
+    v5:
+      type: "eef"
+      yourdfpy_description: false
+      name: "allegro"
+      states: "/synapse/joint_states/allegro"
+      target: "/synapse/target/allegro"     #CHECK CHECK
+      dof: 16
+      joint_names: []
+      prim_path: "/World/Allegro"
+    fr5:
+      type: "manipulator"
+      eef_frame: "wrist3_link"
+      yourdfpy_description: false
+      name: "fairino5_v6_robot"
+      states: "/synapse/joint_states/fr5"
+      target: "/synapse/target/fr5"
+      dof: 6
+      joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
+      prim_path: "/World/fairino5_v6_robot"
+
+SINGLE_PANDA_CAM:
+  table_height: 0.85
+  cameras:
+    wrist:
+      topic: "/synapse/camera/wrist/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
+      prim_path: "/World/franka_set/Franka/panda/panda_hand/wrist_cam"
+      focal_length: 1.5
+      orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
+      translation: [-0.1, 0.0, -0.05]
+      width: 256
+      height: 256
+      frequency: 20
+    quarter_view:
+      topic: "/synapse/camera/quarter_view/image_raw"
+      prim_path: "/World/franka_set/Azure/Camera"
+      focal_length: 1.5
+      width: 256
+      height: 256
+      frequency: 20
+      clipping_near_distance: 0.01
+      clipping_far_distance: 10.0
+
+  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
+  robots:
+    panda_arm:
+      type: "manipulator"
+      eef_frame: "panda_hand"
+      yourdfpy_description: true
+      description_name: "panda_description"
+      name: "panda"
+      states: "/synapse/joint_states/panda"
+      target: "/synapse/target/panda"
+      dof: 9
+      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
+      prim_path: "/World/franka_set/Franka/panda"
+
+DUAL_PANDA:
+  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
+  robots:
+    panda_left:
+      type: "manipulator"
+      eef_frame: "panda_hand"
+      yourdfpy_description: true
+      description_name: "panda_description"
+      name: "franka_left"
+      states: "/synapse/joint_states/panda_left"
+      target: "/synapse/target/panda_left"
+      dof: 9
+      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
+      prim_path: "/World/franka_left"
+    panda_right:
+      type: "manipulator"
+      eef_frame: "panda_hand"
+      yourdfpy_description: true
+      description_name: "panda_description"
+      name: "franka_right"
+      states: "/synapse/joint_states/panda_right"
+      target: "/synapse/target/panda_right"
+      dof: 9
+      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
+      prim_path: "/World/franka_right"
+
+DUAL_XARM:
+  table_height: 0.85
+  cameras:
+    left:
+      topic: "/synapse/camera/wrist/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
+      prim_path: "/World/franka_set/Franka/panda/panda_hand/wrist_cam"
+      focal_length: 1.5
+      orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
+      translation: [-0.1, 0.0, -0.05]
+      width: 256
+      height: 256
+      frequency: 20
+    right:
+      topic: "/synapse/camera/quarter_view/image_raw"
+      prim_path: "/World/franka_set/Azure/Camera"
+      focal_length: 1.5
+      width: 256
+      height: 256
+      frequency: 20
+      clipping_near_distance: 0.01
+      clipping_far_distance: 10.0
+  robots:
+    left_arm:
+      type: "manipulator"
+      yourdfpy_description: false
+      name: "left_arm"
+      states: "/synapse/joint_states/left_arm"
+      target: "/synapse/target/left_arm"
+      dof: 7
+      joint_names: ["l_joint1", "l_joint2", "l_joint3", "l_joint4", "l_joint5", "l_joint6", "l_joint7"]
+      prim_path: "/World/Robots/Left_XArm7"
+    
+    left_hand:
+      type: "eef"
+      yourdfpy_description: false
+      name: "left_arm"
+      states: "/synapse/joint_states/left_hand"
+      dof: 16
+      joint_names: ["l_thumb_1", "l_thumb_2", "l_index_1", "l_index_2", "l_middle_1", "l_middle_2", "l_ring_1", "l_ring_2", "etc..."]
+      prim_path: "/World/Robots/Left_XArm7/allegro"

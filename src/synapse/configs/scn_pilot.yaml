@@ -1,14 +1,7 @@
 scenario_name: "pilot"
 # ===================================
 # 🧠 ADAPTER REGSTRY
-# ADAPTER SHOULD BE REGISTERED WITH CONFIG_COLLECTIONS.
-# adapters:
-#   manual_nav:
-#     type: "MANUAL"
-#   vla_pick:
-#     type: "GR00T"
-#   vla_place:
-#     type: "GR00T"
+# ADAPTERS ARE REGISTERED IN CONFIG_MAIN.
 # ====================================
 # 🌲 BEHAVIOR TREE STRUCTURE
 behavior_tree:

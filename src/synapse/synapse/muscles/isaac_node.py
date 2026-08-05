@@ -1,26 +1,31 @@
 #!/home/rog-sf/installs/isaacsim/python.sh
+
 import sys
 import os
+# --- 0. INJECT WORKSPACE ---
+# Force Isaac Sim's isolated Python to recognize your local ROS 2 workspace
+workspace_path = "/home/rog-sf/ws/synapse_ws/install/synapse/lib/python3.12/site-packages"
+if workspace_path not in sys.path:
+    sys.path.insert(0, workspace_path)
+
+from synapse.utils.embodiment_parser import EmbodimentParser
+
 current_domain = os.environ.get("ROS_DOMAIN_ID", "44")
 os.environ["ROS_DOMAIN_ID"] = current_domain
 
 # --- 1. THE SELF-RESTARTING SCRUBBER & REBUILDER ---
-# Use a custom flag to prevent the infinite reboot loop
 if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
-    
-    # A. Purge System ROS 2 variables
     for key in list(os.environ.keys()):
         if any(trigger in key for trigger in ['ROS', 'AMENT', 'RMW']):
             del os.environ[key]
 
-    # B. Scrub System LD_LIBRARY_PATH and PYTHONPATH
     for path_var in ['LD_LIBRARY_PATH', 'PYTHONPATH']:
         if path_var in os.environ:
             old_path = os.environ[path_var]
-            new_path = ':'.join([p for p in old_path.split(':') if 'ros/jazzy' not in p and 'synapse_ws' not in p and 'python3.12' not in p])
+            # Removed 'synapse_ws' from the deletion filter so it survives the reboot
+            new_path = ':'.join([p for p in old_path.split(':') if 'ros/jazzy' not in p and 'python3.12' not in p])
             os.environ[path_var] = new_path
 
-    # C. Inject Isaac Sim's INTERNAL ROS 2 libraries explicitly
     isaac_ros_lib = "/home/rog-sf/installs/isaacsim/exts/isaacsim.ros2.bridge/jazzy/lib"
     os.environ['ROS_DISTRO'] = 'jazzy'
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_fastrtps_cpp'
@@ -28,18 +33,14 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
     current_ld = os.environ.get('LD_LIBRARY_PATH', '')
     os.environ['LD_LIBRARY_PATH'] = f"{isaac_ros_lib}:{current_ld}" if current_ld else isaac_ros_lib
 
-    # D. Set the safety flag and reboot into the sterile environment
     os.environ['_ISAAC_ENV_CLEANED'] = '1'
     print("🔄 System ROS 2 purged. Injecting Isaac Sim internal ROS 2 libs and rebooting process...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-# E. Ensure current Python runtime's sys.path is also clean after reboot
-sys.path = [p for p in sys.path if 'ros/jazzy' not in p and 'synapse_ws' not in p and 'python3.12' not in p]
+# Removed 'synapse_ws' from the sys.path deletion filter here as well
+# sys.path = [p for p in sys.path if 'ros/jazzy' not in p and 'python3.12' not in p]
 # ---------------------------------------------------
 
-import numpy as np
-
-# 2. Block the Ghost Extension
 if "--disable" not in sys.argv:
     sys.argv.extend(["--disable", "omni.isaac.ros2_bridge", "--enable", "isaacsim.ros2.bridge"])
 
@@ -51,18 +52,18 @@ injected_args = ["--disable", "omni.isaac.ros2_bridge", "--enable", "isaacsim.ro
 sys.argv = [arg for arg in sys.argv if arg not in injected_args]
 
 # 4. ROS2 and Isaac Sim core imports
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState, Image
 from std_msgs.msg import String
-import numpy as np
 
 from isaacsim.core.api.world import World
 from isaacsim.core.prims import Articulation
 from isaacsim.core.api.physics_context import PhysicsContext
 from omni.isaac.sensor import Camera
-from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import omni.usd
+import functools
 
 class IsaacNode(Node):
     def __init__(self, node_name="isaac_node", parameter_overrides=None):
@@ -73,42 +74,49 @@ class IsaacNode(Node):
             automatically_declare_parameters_from_overrides=True
         )
 
-        # Declare ROS2 Parameters for configuration
-        # self.declare_parameter('usd_path', '/home/rog-sf/vla/OXE.usd')
-        # self.declare_parameter('robot_name', 'panda')
-        # self.declare_parameter('robot_prim_path', '/World/franka_set/Franka/panda')
-        # self.declare_parameter('publish_rate_hz', 100)
-        # self.declare_parameter('camera_config', '')
-        # self.declare_parameter('camera_topic', '/synapse/camera/image_raw')
-
         self.usd_path = self.get_parameter('usd_path').value
         self.robot_name = self.get_parameter('robot_name').value
         self.robot_prim_path = self.get_parameter('robot_prim_path').value
         self.publish_rate = self.get_parameter('publish_rate_hz').value
-        self.camera_config = self.get_parameter('camera_config').value
-        self.camera_topic = self.get_parameter('camera_topic').value
+        embodiment_name = self.get_parameter('embodiment_name').value
 
-        # ROS2 Interfaces
-        self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
-        self.pub_camera = self.create_publisher(Image, self.camera_topic, 10)
+        parser = EmbodimentParser(embodiment_name)
+        self.usd_path = parser.get_config().get('usd_path')
+        self.camera_cfg = parser.get_cameras()
+        self.robots_cfg = parser.get_robots()
+        
+        self.camera_publishers = {}
+        for name, cfg in self.camera_cfg.items():
+            topic = cfg.get('topic', f'/synapse/camera/{name}/image_raw')
+            self.camera_publishers[name] = self.create_publisher(Image, topic, 10)
+        self.cameras = {}
+
+        self.pub_joint_states = {}
+        self.sub_targets = {}
+        self.articulations = {}
+        self.target_joints = {}
+        self.initial_positions = {}
+        self.joint_names = {}
+        self.num_dofs = {}
+        _log_robot_names = ""
+
+        for name, cfg in self.robots_cfg.items():
+            state_topic = cfg.get('states', f'/synapse/joint_states/{name}')
+            target_topic = cfg.get('target', f'/synapse/target/{name}')
+            self.pub_joint_states[name] = self.create_publisher(JointState, state_topic, 10)
+            self.sub_targets[name] = self.create_subscription(
+                JointState, target_topic,
+                functools.partial(self.brain_output_callback, robot_name=name), 10
+            )
+            self.joint_names[name] = cfg.get('joint_names', [])
+            _log_robot_names += f"{name}, "
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
-        self.sub_brain_output = self.create_subscription( JointState, '/synapse/brain_output', self.brain_output_callback, 10)
-        self.camera = None
 
-        # Isaac Sim Environment Setup
         self._setup_isaac_sim()
 
-        # State
-        self.num_dofs = self.articulation.num_dof
-        self.joint_names = self.articulation.dof_names
-        
-        # Start with current positions to prevent sudden jumping
         self.reset_process = 100
-        self.initial_positions = self.articulation.get_joint_positions()[0]
-        self.target_joints = np.array(self.initial_positions, dtype=np.float32)
-
-        self.get_logger().info(f"🦾 Isaac Muscle Node initialized for {self.robot_name} with {self.num_dofs} DOFs.")
+        self.get_logger().info(f"🦾 Isaac Muscle Node initialized for {_log_robot_names}")
 
     def synapse_command_callback(self, msg: String):
         """Receives commands from synapse_bt_node (e.g., start, stop)"""
@@ -133,118 +141,127 @@ class IsaacNode(Node):
                 self.get_logger().warn(f"Unknown command received: {command}")
 
     def _setup_isaac_sim(self):
+
         self.get_logger().info(f"Opening stage: {self.usd_path}")
         omni.usd.get_context().open_stage(self.usd_path)
-
-        for _ in range(30):
-            simulation_app.update()
-
-        stage = omni.usd.get_context().get_stage()
-        self.get_logger().info("--- SCANNING USD FOR ROBOTS ---")
-        for prim in stage.Traverse():
-            path_str = str(prim.GetPath()).lower()
-            if "panda" in path_str or "franka" in path_str:
-                self.get_logger().info(f"Found potential robot prim at: {prim.GetPath()}")
-        self.get_logger().info("-------------------------------")
-        # Match BT Node frequency or physics frequency
         dt = 1.0 / self.publish_rate
         self.world = World(physics_dt=dt, rendering_dt=dt, stage_units_in_meters=1.0)
-        
-        physics_context = PhysicsContext(prim_path="/World/PhysicsScene")
-        self.world._physics_context = physics_context
-        
-        if not self.world.scene.object_exists(self.robot_name):
-            self.get_logger().info(f"prim path: {self.robot_prim_path}, name:{self.robot_name}")
-            self.articulation = Articulation(
-                prim_paths_expr=self.robot_prim_path, 
-                name=self.robot_name
-            )
-            self.world.scene.add(self.articulation)
-        else:
-            self.get_logger().info(f"EXIST prim path: {self.robot_prim_path}, name:{self.robot_name}")
-            self.articulation = self.world.scene.get_object(self.robot_name)
+        self.world._physics_context = PhysicsContext(prim_path="/World/PhysicsScene")
+
+        self.get_logger().info("Articulation Initializing =================")
+        for name, cfg in self.robots_cfg.items():
+            prim_path = cfg.get('prim_path')
+
+            if not self.world.scene.object_exists(name):
+                articulation = Articulation(prim_paths_expr=prim_path, name=name)
+                self.world.scene.add(articulation)
+            else:
+                articulation = self.world.scene.get_object(name)
+
+            self.get_logger().info(f"Articulation [{name}] initialized")
+            self.articulations[name] = articulation
 
         self.world.reset()
-        self.articulation.initialize()
 
-        # Camera Setup
-        if self.camera_config == "wrist_cam":
-            camera_prim_path = f"{self.robot_prim_path}/panda_hand/wrist_cam"
-            pitch_angle_rad = np.deg2rad(-75)
-            roll_angle_rad = np.deg2rad(180)
-            camera_translation = [-0.10, 0.00, -0.05]
-            focal_length = 1.5
-            camera_quat = euler_angles_to_quat(np.array([roll_angle_rad, pitch_angle_rad, 0.0]))
+        for name, articulation in self.articulations.items():
+            articulation.initialize()
 
-            self.camera = Camera(
-                prim_path=camera_prim_path,
-                translation=camera_translation,
-                orientation=camera_quat,
-                resolution=(256,256),
-                frequency=20,
-            )
-        elif self.camera_config == "quarter_view_cam":
-            camera_prim_path = "/World/franka_set/Azure/Camera"
-            focal_length = 1.5
-            self.camera = Camera(
-                prim_path=camera_prim_path,
-                resolution=(256, 256),
-                frequenct=20,
-            )
-        
-        if self.camera:
-            self.camera.initialize()
-            self.camera.set_focal_length(focal_length)
-            self.camera.set_clipping_range(near_distance=0.01, far_distance=10.0)
-            self.get_logger().info(f"📷 Camera initialized: {self.camera_config}")
-        
+            init_pos = articulation.get_joint_positions()[0]
+            self.initial_positions[name] = init_pos
+            self.target_joints[name] = np.array(init_pos, dtype=np.float32)
+            self.get_logger().info(f"Articulation [{name}] Initial Positions")
+
+            if not self.joint_names[name]:
+                self.joint_names[name] = articulation.dof_names
+
+        # LOADING CAMERA LOADING CAMERA
+        for name, cfg in self.camera_cfg.items():
+            camera_kwargs= {
+                "prim_path": cfg.get('prim_path'),
+                "resolution": (cfg.get('height'), cfg.get('width')),
+                "frequency": cfg.get('frequency', 20)
+            }
+             
+            if 'translation' in cfg:
+                self.get_logger().info(f"translation is in CFG and [{cfg['translation']}]")
+                camera_kwargs['translation'] = np.array(cfg['translation'])
+            if 'orientation' in cfg:
+                camera_kwargs['orientation'] = np.array(cfg['orientation'])
+
+            cam = Camera(**camera_kwargs)
+            cam.initialize()
+
+            if 'focal_length' in cfg:
+                cam.set_focal_length(cfg['focal_length'])
+            if 'clipping_near_distance' in cfg:
+                self.get_logger().info(f"clipping is in CFG and [{cfg['clipping_near_distance']}, {cfg['clipping_far_distance']}]")
+                cam.set_clipping_range(near_distance=cfg['clipping_near_distance'], far_distance=cfg['clipping_far_distance'])
+            self.cameras[name] = cam
+            self.get_logger().info(f"Camera initialized : {name}")
+        # LOADING CAMERA LOADING CAMERA
+
         # Update once to populate internal physics buffers
-        # TODO: store robot's initial position
         simulation_app.update()
 
-    def brain_output_callback(self, msg: JointState):
+    def brain_output_callback(self, msg: JointState, robot_name: str):
         """Receives target joints from synapse_bt_node"""
         if msg.position and self.reset_process >= 100:
-            length = min(len(msg.position), self.num_dofs)
-            self.target_joints[:length] = np.array(msg.position)[:length]
+            if msg.name:
+                # 1. Safely route values using zip to inherently protect against length mismatches
+                for joint_name, joint_pos in zip(msg.name, msg.position):
+                    if joint_name in self.joint_names[robot_name]:
+                        sim_idx = self.joint_names[robot_name].index(joint_name)
+                        self.target_joints[robot_name][sim_idx] = joint_pos
+            else:
+                # 2. Fallback: Copy directly up to the physical DOF limit
+                copy_len = min(len(msg.position), len(self.target_joints[robot_name]))
+                self.target_joints[robot_name][:copy_len] = msg.position[:copy_len]
+
+                # Structural patch for parallel grippers
+                if len(msg.position) == 8 and len(self.target_joints[robot_name]) == 9:
+                    self.target_joints[robot_name][-1] = msg.position[-1]
 
     def spin_and_step(self):
         """Manual loop to step both ROS2 and Isaac Sim concurrently"""
         while simulation_app.is_running():
             rclpy.spin_once(self, timeout_sec=0.0)
-            if self.world.is_playing():
 
+            if self.world.is_playing():
                 if self.reset_process < 100:
                     self.reset_process += 1
 
-                self.articulation.set_joint_position_targets(self.target_joints.reshape(1, -1))
+                for name, articulation in self.articulations.items():
+                    articulation.set_joint_position_targets(self.target_joints[name].reshape(1, -1))
 
                 self.world.step(render=True)
                 simulation_app.update()
 
-                current_positions = self.articulation.get_joint_positions()[0]
-                
-                msg = JointState()
-                msg.header.stamp = self.get_clock().now().to_msg()
-                msg.name = self.joint_names
-                msg.position = current_positions.tolist()
-                
-                self.pub_joint_states.publish(msg)
+                for name, articulation in self.articulations.items():
+                    current_positions = articulation.get_joint_positions()[0]
 
-                if self.camera:
-                    frame_rgba = self.camera.get_rgba()
-                    if frame_rgba is not None and frame_rgba.shape == (256, 256, 4):
+                    msg = JointState()
+                    msg.header.stamp = self.get_clock().now().to_msg()
+                    msg.name = self.joint_names[name]
+                    msg.position = current_positions.tolist()
+                    self.pub_joint_states[name].publish(msg)
+
+                for name, cam in self.cameras.items():
+                    frame_rgba = cam.get_rgba()
+                    if frame_rgba is not None and len(frame_rgba.shape) == 3 and frame_rgba.shape[2] == 4:
+                        height, width = frame_rgba.shape[:2]
                         frame_rgb = frame_rgba[:, :, :3]
                         img_msg = Image()
                         img_msg.header.stamp = self.get_clock().now().to_msg()
-                        img_msg.header.frame_id = self.camera_config
-                        img_msg.height = 256
-                        img_msg.width = 256
+                        img_msg.header.frame_id = name
+                        img_msg.height = height
+                        img_msg.width = width
                         img_msg.encoding = "rgb8"
                         img_msg.is_bigendian = 0
-                        img_msg.step = 256 * 3
+                        img_msg.step = width * 3
                         img_msg.data = frame_rgb.astype(np.uint8).tobytes()
-                        self.pub_camera.publish(img_msg)
+                        if name in self.camera_publishers:
+                            self.camera_publishers[name].publish(img_msg)
+
             else:
                 self.world.render()
                 simulation_app.update()
@@ -258,6 +275,10 @@ def main(args=None):
         node.spin_and_step()
     except KeyboardInterrupt:
         node.get_logger().info("Shutting down Isaac Muscle Node...")
+    except Exception as e:
+        node.get_logger().error(f" FATAL PYTHON ERROR IN LOOP: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         node.destroy_node()
         rclpy.shutdown()

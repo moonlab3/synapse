@@ -10,6 +10,7 @@ import jaxls
 import pyroki as pk
 from sensor_msgs.msg import JointState
 from loguru import logger
+from synapse.utils.embodiment_parser import EmbodimentParser
 
 # Silence JAXLS and PyRoki info/debug logs
 logger.disable("jaxls")
@@ -77,46 +78,50 @@ def solve_ik_jit(
 class GR00TAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="gr00t_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        # terminal.wait_debug("gr00t init start")
-        self.current_eef_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
+        
         # 1. Initialize GR00T Policy Client
-
         ip = self.get_parameter(f"{self.get_name()}.policy_ip").value
         port = self.get_parameter(f"{self.get_name()}.policy_port").value
         self.default_command = self.get_parameter(f"{self.get_name()}.default_command").value
 
-        
-        if PolicyClient:
-            self.client = PolicyClient(ip, port)
-            if not self.client.ping():
-                print(f"❌ PolicyClient NOT connected to GR00T server at {ip}:{port}.")
-            else:
-                print(f"🔌 PolicyClient initialized and connected to GR00T server at {ip}:{port}.")
+        self.client = PolicyClient(ip, port)
+        if not self.client.ping():
+            print(f"❌ PolicyClient NOT connected to GR00T server at {ip}:{port}.")
         else:
-            raise ValueError("NO POLICY CLIENT")
+            print(f"🔌 PolicyClient initialized and connected to GR00T server at {ip}:{port}.")
         
-        if self.robot_description:
-            self.description_name = self.get_parameter('description_name').value
-            urdf = load_robot_description(self.description_name)
-        else:
-            urdf_path = self.get_parameter('urdf_path').value
-            urdf = yourdfpy.URDF.load(urdf_path)
+        # 2. Dynamic Embodiment Configuration
+        parser = EmbodimentParser(self.embodiment_name)
+        self.robots_cfg = parser.get_robots()
 
-
-        self.robot = pk.Robot.from_urdf(urdf=urdf)
-        self.eef_frame = self.get_parameter('eef_frame').value
-
-        # 3. Warm up JAX Compiler
+        self.robots = {}
+        self.eef_frame = {}
+        self.current_eef_poses = {}
+        
         dummy_se3 = jaxlie.SE3.identity()
-        dummy_idx = jnp.array(self.robot.links.names.index(self.eef_frame), dtype=jnp.int32)
-        dummy_q = jnp.zeros(self.robot.joints.num_actuated_joints)
-        _ = solve_ik_jit(self.robot, dummy_se3, dummy_idx, dummy_q) 
-        print("⚡ JAX IK Compiler ready.")
 
-    def _pad_joints(self, q_array: jnp.ndarray) -> jnp.ndarray:
-        expected_dofs = self.robot.joints.num_actuated_joints
+        for name, cfg in self.robots_cfg.items():
+            if cfg.get('type') == 'manipulator':
+                if cfg.get('yourdfpy_description'):
+                    urdf = load_robot_description(cfg.get('description_name'))
+                else:
+                    urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
+                
+                self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
+                self.eef_frame[name] = cfg.get('eef_frame')
+                self.current_eef_poses[name] = [0.0] * 6
+                
+                # 3. Warm up JAX Compiler per robot
+                dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
+                dummy_q = jnp.zeros(self.robots[name].joints.num_actuated_joints)
+                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q) 
+                
+        print("⚡ JAX IK Compiler ready for all manipulators.")
+        self.terminal = terminal
+        self.terminal.wait_debug("gr00t adapter init done")
+
+    def _pad_joints(self, q_array: jnp.ndarray, expected_dofs: int) -> jnp.ndarray:
         current_dofs = q_array.shape[0]
-        
         if current_dofs < expected_dofs:
             padding = jnp.zeros(expected_dofs - current_dofs)
             return jnp.concatenate([q_array, padding])
@@ -137,167 +142,214 @@ class GR00TAdapter(BaseBrainAdapter):
         rotation = jaxlie.SO3.from_rpy_radians(pose[3], pose[4], pose[5])
         return jaxlie.SE3.from_rotation_and_translation(rotation, translation)
 
-    def _forward_kinematics(self, joint_state: JointState) -> list:
-        if not joint_state or not joint_state.position:
-            return self.current_eef_pose.copy()
-
-        q = jnp.array(joint_state.position)
-        q_padded = self._pad_joints(q)
+    def _forward_kinematics(self, joint_states_dict: dict) -> dict:
+        """Calculates EEF Poses for all manipulators independently."""
+        eef_poses = {}
         
-        all_link_poses = self.robot.forward_kinematics(q_padded)
-        eef_idx = self.robot.links.names.index(self.eef_frame)
-        eef_pose_wxyz_xyz = all_link_poses[eef_idx]
-        eef_se3 = jaxlie.SE3(eef_pose_wxyz_xyz)
-        
-        self.current_eef_pose = self._se3_to_list(eef_se3)
-        return self.current_eef_pose.copy()
+        for name, cfg in self.robots_cfg.items():
+            if cfg.get('type') == 'manipulator':
+                joint_state = joint_states_dict.get(name)
+                
+                if not joint_state or not joint_state.position:
+                    eef_poses[name] = self.current_eef_poses.get(name, [0.0] * 6).copy()
+                    continue
 
-    def _format_for_policy(self, obs_history: list, get_default: False) -> dict:
+                expected_dofs = self.robots[name].joints.num_actuated_joints
+                q = jnp.array(joint_state.position)
+                q_padded = self._pad_joints(q, expected_dofs)
+                
+                all_link_poses = self.robots[name].forward_kinematics(q_padded)
+                eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
+                eef_se3 = jaxlie.SE3(all_link_poses[eef_idx])
+                
+                eef_poses[name] = self._se3_to_list(eef_se3)
+                self.current_eef_poses[name] = eef_poses[name].copy()
+                
+        return eef_poses
+
+    def _communicate_with_policy(self, formatted_obs: dict) -> dict:
+        # Extract internal context before passing to GR00T
+        base_poses = formatted_obs.pop("_internal_base_poses", {})
+        original_joints = formatted_obs.pop("_internal_original_joints", {})
+
+        action_dict = {}
+        if self.client:
+            try:
+                raw_result = self.client.get_action(formatted_obs)
+                if isinstance(raw_result, (list, tuple)):
+                    action_dict = raw_result[0]
+                elif isinstance(raw_result, dict):
+                    action_dict = raw_result
+            except Exception as e:
+                pass # Fail silently, let the chunk return empty
+                
+        return {
+            "action_chunk": action_dict, 
+            "base_poses": base_poses,
+            "original_joints": original_joints
+        }
+
+    def _format_for_policy(self, obs_history: list, get_default: bool = False) -> dict:
         latest_obs = obs_history[-1]
-        joint_msg = latest_obs.get("joint")
-        image = latest_obs.get("image") 
+        joints_dict = latest_obs.get("joints", {})
+        images_dict = latest_obs.get("images", {})
+        
         if get_default:
             command = self.default_command
         else:
-            command = latest_obs.get("command")
+            raw_command = latest_obs.get("command")
+            command = raw_command if isinstance(raw_command, str) else self.default_command
         
-        # 1. Get Cartesian Pose
-        x, y, z, roll, pitch, yaw = self._forward_kinematics(joint_msg)
+        # 1. Get Cartesian Poses for all manipulators
+        eef_poses = self._forward_kinematics(joints_dict)
         
-        # 2. Get Gripper State (Assuming index 7 is the finger, max width ~0.08m)
-        q = joint_msg.position if joint_msg.position else [0]*8
-        current_width = q[7] * 2 if len(q) > 7 else 0.0
-        normalized_gripper = np.clip(current_width / 0.08, 0.0, 1.0)
+        state = {}
+        is_primary_arm = True
+        
+        # 2. Iterate through manipulators to build state tensors
+        for name, cfg in self.robots_cfg.items():
+            if cfg.get('type') == 'manipulator' and name in eef_poses:
+                pose = eef_poses[name]
+                joint_msg = joints_dict.get(name)
+                
+                # Get Gripper State (Assuming index 7 is the finger, max width ~0.08m)
+                q = joint_msg.position if joint_msg and joint_msg.position else [0]*8
+                current_width = q[7] * 2 if len(q) > 7 else 0.0
+                normalized_gripper = np.clip(current_width / 0.08, 0.0, 1.0)
+                
+                # ⚡ THE FIX: Guarantee 'state.x' exists for the primary arm.
+                # Only namespace secondary arms to prevent overwriting the dictionary.
+                prefix = "" if is_primary_arm else f"{name}."
+                
+                state[f"{prefix}x"] = np.array([[[pose[0]]]], dtype=np.float32)
+                state[f"{prefix}y"] = np.array([[[pose[1]]]], dtype=np.float32)
+                state[f"{prefix}z"] = np.array([[[pose[2]]]], dtype=np.float32)
+                state[f"{prefix}roll"] = np.array([[[pose[3]]]], dtype=np.float32)
+                state[f"{prefix}pitch"] = np.array([[[pose[4]]]], dtype=np.float32)
+                state[f"{prefix}yaw"] = np.array([[[pose[5]]]], dtype=np.float32)
+                state[f"{prefix}pad"] = np.array([[[0.0]]], dtype=np.float32)
+                state[f"{prefix}gripper"] = np.array([[[normalized_gripper]]], dtype=np.float32)
+                
+                is_primary_arm = False
 
         # 3. Construct the GR00T Dictionary
-        state = {
-            "x": np.array([[[x]]], dtype=np.float32),
-            "y": np.array([[[y]]], dtype=np.float32),
-            "z": np.array([[[z]]], dtype=np.float32),
-            "roll": np.array([[[roll]]], dtype=np.float32),
-            "pitch": np.array([[[pitch]]], dtype=np.float32),
-            "yaw": np.array([[[yaw]]], dtype=np.float32),
-            "pad": np.array([[[0.0]]], dtype=np.float32),
-            "gripper": np.array([[[normalized_gripper]]], dtype=np.float32)
-        }
-
-        if command is None:
-            clean_command = ""
-        else:
-            clean_command = command
-
-        if image is not None:
-            formatted_image = image[np.newaxis, np.newaxis, :, :, :]
-        else:
-            formatted_image = np.zeros((1, 1, 256, 256, 3), dtype=np.uint8)
-
         obs = {
-            "annotation.human.action.task_description": [clean_command],
-            "video.image_0": formatted_image,
+            "annotation.human.action.task_description": [command],
         }
+
+        # Process multiple camera feeds dynamically
+        if images_dict:
+            for idx, (cam_name, img) in enumerate(images_dict.items()):
+                if img is not None:
+                    obs[f"video.image_{idx}"] = img[np.newaxis, np.newaxis, :, :, :]
+                else:
+                    obs[f"video.image_{idx}"] = np.zeros((1, 1, 256, 256, 3), dtype=np.uint8)
+        else:
+            obs["video.image_0"] = np.zeros((1, 1, 256, 256, 3), dtype=np.uint8)
 
         for item in state:
             obs[f"state.{item}"] = state[item]
 
-        # Stash original state so we can calculate deltas in IK
-        obs["_internal_base_pose"] = [x, y, z, roll, pitch, yaw]
-        obs["_internal_original_joint"] = joint_msg
+        # Stash original states so we can calculate deltas in IK safely
+        obs["_internal_base_poses"] = eef_poses
+        obs["_internal_original_joints"] = joints_dict
 
         return obs
-    def _communicate_with_policy(self, formatted_obs: dict) -> dict:
-        # Extract internal context before passing to GR00T
-        base_pose = formatted_obs.pop("_internal_base_pose")
-        original_joint = formatted_obs.pop("_internal_original_joint")
 
-        if self.client:
-            try:
-                raw_result = self.client.get_action(formatted_obs)
-            except Exception:
-                pass
-            
-            # ⚡ THE FIX: Extract the actual dictionary from the GR00T return tuple
-            if isinstance(raw_result, (list, tuple)):
-                action_dict = raw_result[0]
-            else:
-                action_dict = raw_result
-                
-        else:
-            print("NO CLIENT")
-            action_dict = {} # Fallback if client failed to load
-
-        return {
-            "action_chunk": action_dict, 
-            "base_pose": base_pose,
-            "original_joint": original_joint
-        }
 
     def _format_for_muscle(self, raw_data: dict) -> list:
-        action_dict = raw_data.get("action_chunk") 
-        base_pose = raw_data.get("base_pose") # [x, y, z, r, p, y]
-        original_joint_state = raw_data.get("original_joint")
+        action_dict = raw_data.get("action_chunk", {})
+        base_poses = raw_data.get("base_poses", {})
+        original_joints = raw_data.get("original_joints", {})
         
-        if not action_dict or 'action.x' not in action_dict or not original_joint_state:
+        if not action_dict or not original_joints:
             return []
 
-        eef_idx = self.robot.links.names.index(self.eef_frame)
-        target_link_idx_jax = jnp.array(eef_idx, dtype=jnp.int32)
+        # Find the chunk length by sampling the first tensor dimension
+        num_chunks = 0
+        for val in action_dict.values():
+            if hasattr(val, 'shape') and len(val.shape) > 1:
+                num_chunks = val.shape[1]
+                break
 
-        # 1. Setup the starting seed from current reality
-        current_q = jnp.array(original_joint_state.position)
-        seed_q_padded = self._pad_joints(current_q)
-        original_length = len(original_joint_state.position)
+        if num_chunks == 0:
+            return []
 
         action_chunk = []
-        num_chunks = action_dict['action.x'].shape[1]
+        
+        # 1. Setup the warm-start seeds from current reality for all manipulators
+        seed_qs = {}
+        for name, cfg in self.robots_cfg.items():
+            if cfg.get('type') == 'manipulator' and name in original_joints:
+                expected_dofs = self.robots[name].joints.num_actuated_joints
+                q = jnp.array(original_joints[name].position)
+                seed_qs[name] = self._pad_joints(q, expected_dofs)
 
-        # 2. Iterate through the GR00T chunk
+        # 2. Iterate through the GR00T chunk sequence
         for step_index in range(num_chunks):
-            # Extract deltas
-            dx = action_dict['action.x'][0, step_index, 0].item()
-            dy = action_dict['action.y'][0, step_index, 0].item()
-            dz = action_dict['action.z'][0, step_index, 0].item()
-            droll = action_dict['action.roll'][0, step_index, 0].item()
-            dpitch = action_dict['action.pitch'][0, step_index, 0].item()
-            dyaw = action_dict['action.yaw'][0, step_index, 0].item()
-            gripper_cmd = action_dict['action.gripper'][0, step_index, 0].item()
+            step_dict = {}
+            is_primary_arm = True
+            
+            for name, cfg in self.robots_cfg.items():
+                original_js = original_joints.get(name, JointState())
+                
+                if cfg.get('type') == 'manipulator' and name in base_poses:
+                    # ⚡ THE FIX: Match the prefixing logic used in observations
+                    prefix = "action." if is_primary_arm else f"action.{name}."
+                    is_primary_arm = False
+                    
+                    try:
+                        dx = action_dict[f'{prefix}x'][0, step_index, 0].item()
+                        dy = action_dict[f'{prefix}y'][0, step_index, 0].item()
+                        dz = action_dict[f'{prefix}z'][0, step_index, 0].item()
+                        droll = action_dict[f'{prefix}roll'][0, step_index, 0].item()
+                        dpitch = action_dict[f'{prefix}pitch'][0, step_index, 0].item()
+                        dyaw = action_dict[f'{prefix}yaw'][0, step_index, 0].item()
+                        gripper_cmd = action_dict[f'{prefix}gripper'][0, step_index, 0].item()
+                    except KeyError:
+                        # Missing keys for this robot, hold position
+                        step_dict[name] = original_js
+                        continue
 
-            # Apply deltas to the base pose
-            target_eef_pose = [
-                base_pose[0] + dx,
-                base_pose[1] + dy,
-                base_pose[2] + dz,
-                base_pose[3] + droll,
-                base_pose[4] + dpitch,
-                base_pose[5] + dyaw,
-            ]
-            
-            target_se3 = self._list_to_se3(target_eef_pose)
-            
-            # ⚡ JIT IK Solve using the PREVIOUS step's output as the seed
-            optimized_q = solve_ik_jit(
-                self.robot,
-                target_se3,
-                target_link_idx_jax,
-                seed_q_padded # Warm start
-            )
-            
-            seed_q_padded = optimized_q
-            
-            # Map gripper (0.0 to 1.0) back to Franka finger limits (~0.04m)
-            finger_target = float(np.clip(gripper_cmd, 0.0, 1.0) * 0.04)
-            
-            # Convert JAX array to standard list
-            final_positions = optimized_q.tolist()
-            
-            # If the robot has at least 8 joints, overwrite the finger joint
-            if len(final_positions) >= 8:
-                final_positions[7] = finger_target
+                    # Apply deltas to the base pose
+                    base_pose = base_poses[name]
+                    target_eef_pose = [
+                        base_pose[0] + dx, base_pose[1] + dy, base_pose[2] + dz,
+                        base_pose[3] + droll, base_pose[4] + dpitch, base_pose[5] + dyaw,
+                    ]
+                    
+                    target_se3 = self._list_to_se3(target_eef_pose)
+                    target_link_idx_jax = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
+                    
+                    # JIT IK Solve using the PREVIOUS step's output as the seed
+                    optimized_q = solve_ik_jit(
+                        self.robots[name],
+                        target_se3,
+                        target_link_idx_jax,
+                        seed_qs[name] 
+                    )
+                    
+                    seed_qs[name] = optimized_q 
+                    
+                    # Map gripper back to hardware limits
+                    finger_target = float(np.clip(gripper_cmd, 0.0, 1.0) * 0.04)
+                    final_positions = optimized_q.tolist()
+                    
+                    original_length = len(original_js.position)
+                    if len(final_positions) >= 8:
+                        final_positions[7] = finger_target
 
-            # Package into ROS2 Message
-            out_msg = JointState()
-            out_msg.name = original_joint_state.name
-            out_msg.position = final_positions[:original_length]
+                    # Package into ROS2 Message
+                    out_msg = JointState()
+                    out_msg.header = original_js.header
+                    out_msg.name = original_js.name
+                    out_msg.position = final_positions[:original_length]
 
-            action_chunk.append(out_msg)
+                    step_dict[name] = out_msg
+                else:
+                    # Non-manipulators bypass IK safely. 
+                    step_dict[name] = original_js
+
+            action_chunk.append(step_dict)
 
         return action_chunk

@@ -1,0 +1,50 @@
+import yaml
+import os
+from pathlib import Path
+
+class EmbodimentParser:
+    # Centralized parser for the Synapse architecture. 
+    # Supplies hardware topology to both Brain Adapters and Muscle Nodes.
+
+    def __init__(self, embodiment_name: str):
+        self.embodiment_name = embodiment_name
+        
+        share_dir = "/home/rog-sf/ws/synapse_ws/install/synapse/share/synapse"
+        current_file = Path(__file__).resolve()
+        dynamic_share = os.path.join(current_file.parents[5], 'share', 'synapse')
+        if os.path.exists(os.path.join(dynamic_share, 'configs', 'embodiment_configs.yaml')):
+            share_dir = dynamic_share
+            
+        self.config_path = os.path.join(share_dir, 'configs', 'embodiment_configs.yaml')
+        self.full_config = self._load_file()
+        self.embodiment_config = self._extract_embodiment()
+
+    def _load_file(self) -> dict:
+        if not os.path.exists(self.config_path):
+            raise FileNotFoundError(f"❌ Embodiment config not found at: {self.config_path}")
+        
+        with open(self.config_path, 'r') as file:
+            return yaml.safe_load(file) or {}
+
+    def _extract_embodiment(self) -> dict:
+        if self.embodiment_name not in self.full_config:
+            available = list(self.full_config.keys())
+            raise ValueError(
+                f"❌ Embodiment '{self.embodiment_name}' not found in {self.config_path}! "
+                f"Available options: {available}"
+            )
+        
+        return self.full_config[self.embodiment_name]
+
+    def get_config(self) -> dict:
+        return self.embodiment_config
+
+    def get_cameras(self) -> dict:
+        return self.embodiment_config.get('cameras', {})
+
+    def get_robots(self) -> dict:
+        return self.embodiment_config.get('robots', {})
+
+    def get_total_dofs(self) -> int:
+        robots = self.get_robots()
+        return sum(robot.get('dof', 0) for robot in robots.values())

@@ -8,7 +8,9 @@ from collections import deque
 from synapse.utils.terminal_manager import BackgroundTUI
 from concurrent.futures import ThreadPoolExecutor
 from synapse.brains.brain_selector import BrainSelector
-from bt_parser import ScenarioParser
+from synapse.utils.scenario_parser import ScenarioParser
+from synapse.utils.embodiment_parser import EmbodimentParser
+import functools
 import py_trees
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -43,13 +45,13 @@ class SynapseMainNode(Node):
             )
 
         self.terminal_ui = BackgroundTUI(self.get_parameter('debug_mode').value)
+        # self.terminal_ui.wait_debug("before getting parameters")
 
-        self.muscle_embodiment = self.get_parameter('muscle_embodiment').value
+        embodiment_name = self.get_parameter('embodiment_name').value
         self.tick_freq = self.get_parameter('bt_tick_frequency_hz').value
         self.obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
         self.brain_option = self.get_parameter('brain_option').value
         self.muscle_option = self.get_parameter('muscle_option').value
-        self.camera_topic = self.get_parameter('camera_topic').value
         registry_list = self.get_parameter('brain_registry').value
         scenario_filename = self.get_parameter('scenario_filename').value
 
@@ -57,8 +59,8 @@ class SynapseMainNode(Node):
         param_overrides = list(all_params.values())
 
         self.brain_adapters = {}
-        # self.terminal_ui.wait_debug("BEFORE brain_adapters")
 
+        # self.terminal_ui.wait_debug("before adapters loading")
         for entry in registry_list:
             node_name, adapter_type = entry.split(':')
             self.brain_adapters[node_name] = BrainSelector.get_brain(
@@ -75,16 +77,39 @@ class SynapseMainNode(Node):
         for i, name in enumerate(self.brain_node_list):
             self.brain_node_map += f"[{i+1}: {name}]  "
 
-        if not self.brain_adapters:
-            raise ValueError(f"Invalid brain option: {self.brain_option}")
-
-        parser = ScenarioParser(synapse_node=self, terminal=self.terminal_ui)
-        self.terminal_ui.wait_debug("before tree parsing")
+        scenario_parser = ScenarioParser(synapse_node=self)
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
-        self.bt_root = parser.parse(scenario_path)
-        self.terminal_ui.wait_debug("after tree parsing")
+        self.bt_root = scenario_parser.parse(scenario_path)
         self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
         self.terminal_ui.log(f"🌲🌲 Behaviour Tree loaded from {scenario_filename}")
+
+        embodiment_parser = EmbodimentParser(embodiment_name)
+        cameras = embodiment_parser.get_cameras()
+        robots = embodiment_parser.get_robots()
+
+        self.camera_subscribers = {}
+        for name, cfg in cameras.items():
+            topic = cfg.get('topic', f'/synapse/camera/{name}/image_raw')
+            self.camera_subscribers[name] = self.create_subscription(
+                Image, topic, 
+                functools.partial(self.image_callback, topic_name=name), 10)
+
+        self.target_publishers = {}
+        self.robot_subscribers = {}
+        for name, cfg in robots.items():
+            joint_states = cfg.get('states', f'/synapse/joint_states/{name}')
+            self.robot_subscribers[name] = self.create_subscription(
+                JointState, joint_states,
+                functools.partial(self.obs_callback, topic_name=name), 10)
+
+            target = cfg.get('target', f'/synapse/target/{name}')
+            self.target_publishers[name] = self.create_publisher(JointState, target, 10)
+
+        self.terminal_ui.wait_debug("after embodiment parsing ")
+        self.latest_images = {}
+        self.latest_joints = {}
+        self.updated_joints = set()
+        self.expected_robots = set(robots.keys())
 
         self.action_buffer = ActionChunkBuffer()  # Manage action chunks from the brain
         self.obs_buffer = deque(maxlen=self.obs_buffer_size)
@@ -95,43 +120,48 @@ class SynapseMainNode(Node):
         self.is_ticking = False
         self.latest_image = None
 
-        self.terminal_ui.wait_debug("before ROS2 Interface setting")
-        
-        # ROS2 Interfaces
-        self.sub_joint_states = self.create_subscription(JointState, '/synapse/joint_states', self.obs_callback, 10)
-        if self.camera_topic is not None:
-            self.sub_camera = self.create_subscription(Image, self.camera_topic, self.image_callback, 10)
-        self.pub_brain_output = self.create_publisher(JointState, '/synapse/brain_output', 10)
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
         
         self.terminal_ui.log(f"⚙️  BT Tick Frequency: {self.tick_freq} Hz")
         self.terminal_ui.log(f"⚙️  Observation Buffer Window Size: {self.obs_buffer_size}")
-        self.terminal_ui.log(f"⚙️️  Brain Option: {self.brain_option}")
-        self.terminal_ui.log(f"⚙️️  Hardware Setup: {self.muscle_embodiment}")
-        self.terminal_ui.log(f"⚙️️  Muscle Option: {self.muscle_option}")
+        self.terminal_ui.log(f"⚙️️  Brain: {self.brain_option}, Muscle: {self.muscle_option}")
+        self.terminal_ui.log(f"⚙️️  Hardware Setup: {embodiment_name}")
         self.terminal_ui.log("🎉 Synapse BT Node Ready.")
-        self.terminal_ui.wait_debug("DONE DONE DONE")
 
-        self.to_brain = "pick up the box"
-        self.running_default = False
+        self.to_brain = None
+        self.last_command = self.last_command_to_show = ""
+        self.running_default = True
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
 
         
-    def image_callback(self, msg: Image):
+    def image_callback(self, msg: Image, topic_name: str):
         frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
         self.latest_image = frame
+        self.latest_images[topic_name] = frame
 
-    def obs_callback(self, msg):
-        obs_dict = {"image": self.latest_image, "joint": msg, "command": self.to_brain}  # Placeholder for actual image_msgs
-        self.obs_buffer.append(obs_dict)
+    def obs_callback(self, msg: JointState, topic_name: str):
+        self.latest_joints[topic_name] = msg
+        self.updated_joints.add(topic_name)
+        if self.to_brain is None and len(self.last_command) == 1:
+            self.last_command = ""
+        if self.to_brain is not None:
+            self.last_command = self.to_brain
+        if len(self.updated_joints) == len (self.expected_robots):
+            obs_dict = {
+                "images": self.latest_images.copy(), 
+                "joints": self.latest_joints.copy(),
+                "command": self.last_command
+                }
+            self.obs_buffer.append(obs_dict)
+            self.updated_joints.clear()
 
     def tick(self):
         key = self.terminal_ui.get_command()
         
         if key and key.startswith("CMD:"):
             command_sentence = key[4:]
-            self.to_brain = command_sentence
+            self.to_brain = self.last_command_to_show = command_sentence
             self.running_default = False
             self.terminal_ui.log(f"entered: {command_sentence}")
         else:
@@ -154,22 +184,23 @@ class SynapseMainNode(Node):
                     self.pub_synapse_command.publish(String(data="RESET"))
                 case '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0':
                     idx = int(key) - 1
-                    self.running_brain = self.brain_node_list[idx]
-                    self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
-                    self.running_default = True
+                    # self.terminal_ui.wait_debug(f"index{idx}, node_num:{self.brain_node_num}")
+                    if idx + 1 <= self.brain_node_num:
+                        self.running_brain = self.brain_node_list[idx]
+                        self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
+                        self.running_default = True
                     
                 case None:
-                    # if len(self.to_brain) < 2:
-                        # self.to_brain = None
+                    self.to_brain = None
                     pass
                 case _:
-                    self.to_brain = key
+                    self.to_brain = self.last_command_to_show = key
             
         self.terminal_ui.update_status(
             self.status, 
             len(self.obs_buffer), 
             self.action_buffer.get_length(), 
-            self.to_brain, 
+            self.last_command_to_show, 
             self.brain_node_map, 
             self.running_brain
         )
@@ -187,7 +218,11 @@ class SynapseMainNode(Node):
              # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
             # self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
-            self.inference_future = self.inference_executor.submit(self.brain_adapters[self.running_brain].infer, historical_obs, self.running_default)
+            self.inference_future = self.inference_executor.submit(
+                self.brain_adapters[self.running_brain].infer, 
+                historical_obs, 
+                self.running_default
+                )
 
         action, status = self.action_buffer.pop_next_action()
 
@@ -195,9 +230,9 @@ class SynapseMainNode(Node):
         #     self.get_logger().warning("Action buffer starvation! Holding last valid action.")
 
         if action is not None:
-            self.pub_brain_output.publish(action)
-        else:
-            self.terminal_ui.log("Action buffer is empty")
+            for robot, msg in action.items():
+                if robot in self.target_publishers:
+                    self.target_publishers[robot].publish(msg)
 
 
 def main(args=None):

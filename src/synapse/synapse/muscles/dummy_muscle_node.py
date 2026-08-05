@@ -5,6 +5,8 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import JointState
 from rclpy.duration import Duration
+from synapse.utils.embodiment_parser import EmbodimentParser
+import functools
 
 class DummyMuscleNode(Node):
     def __init__(self, node_name="dummy_muscle_node", parameter_overrides=None):
@@ -17,63 +19,90 @@ class DummyMuscleNode(Node):
         
         # Increased default rate to 100Hz to match the BT Node tick frequency
         freq = self.get_parameter('publish_rate_hz').value
+        embodiment_name = self.get_parameter('embodiment_name').value
+        parser = EmbodimentParser(embodiment_name)
+        self.robots_cfg = parser.get_robots()
 
-        self.pub_joint_states = self.create_publisher(JointState, '/synapse/joint_states', 10)
-        
-        # Subscribers: Listening for actions and commands from Synapse
-        self.sub_brain_output = self.create_subscription(JointState, '/synapse/brain_output', self.brain_output_callback, 10)
+        self.target_subscribers = {}
+        self.robot_publishers = {}
+
+        self.current_joints = {}
+        self.target_joints = {}
+        self.joint_names = {}
+
+        for name, cfg in self.robots_cfg.items():
+            target = cfg.get('target', f'/synapse/target/{name}')
+            joint_states = cfg.get('states', f'/synapse/joint_states/{name}')
+
+            self.target_subscribers[name] = self.create_subscription(
+                JointState, target,
+                functools.partial(self.target_callback, robot_name=name), 10)
+
+            self.robot_publishers[name] = self.create_publisher(JointState, joint_states, 10)
+            dof = cfg.get('dof', 0)
+
+            self.current_joints[name] = np.zeros(dof, dtype=np.float32)
+            self.target_joints[name] = np.zeros(dof, dtype=np.float32)
+            self.joint_names[name] = cfg.get('joint_names', [])
+
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
 
-        # Timer loop for physical simulation/publishing
-        self.timer = self.create_timer(1.0 / freq, self.publish_state)
+        self.timer = self.create_timer(1.0 / freq, self.spin_and_step)
         
-        # Internal State: 7-DOF arm 
-        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6', 'joint_7', 'joint_8']  # Assuming 9 joints for the dummy arm
-        self.current_joints = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        self.target = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-
-
         self.get_logger().info(f"💪 Dummy Muscle Node Ready. Publishing at {freq}Hz.")
-
-        # self.add_on_set_parameters_callback(self.on_parameter_change)
-    # def on_parameter_change(self, params):
-    #     for param in params:
-    #         if param.name == 'publish_rate_hz':
-    #             self.timer.timer_period_ns = 1.0 / param.value
-    #             self.timer.reset()
-    #             break
-
+        self.is_playing = False
 
     def synapse_command_callback(self, msg):
-        if msg.data == "QUIT":
-            self.get_logger().info("💪 Received QUIT command. Shutting down Dummy Muscle Node.")
-            raise KeyboardInterrupt
+        command = msg.data
+        match command:
+            case "START":
+                self.get_logger().info("Received START command. Resuming dummy simulation.")
+                self.is_playing = True
+            case "PAUSE":
+                self.get_logger().info("Received PAUSE command. Pausing dummy simulation.")
+                self.is_playing = False
+            case "QUIT":
+                self.get_logger().info("Received QUIT command. Shutting down Dummy Node.")
+                raise KeyboardInterrupt
+            case "RESET":
+                self.get_logger().info("Received RESET command. Zeroing all dummy joints.")
+                # Hard reset all simulated robots to zero
+                for name in self.robots_cfg.keys():
+                    if len(self.current_joints[name]) > 0:
+                        self.current_joints[name] = np.zeros_like(self.current_joints[name])
+                        self.target_joints[name] = np.zeros_like(self.target_joints[name])
+            case _:
+                pass
 
-    def brain_output_callback(self, msg: JointState):
-        # Architecture 3.3: Translate actions into robot-specific commands
-        positions = ", ".join(f"{p:.3f}" for p in msg.position)
-        self.get_logger().info(f"💪 Received {positions}")
+    def spin_and_step(self):
+        """100Hz loop to simulate physics and publish states."""
+        for name in self.robots_cfg.keys():
+            if len(self.current_joints[name]) == 0:
+                continue
+            # ⚡ Dummy "Physics": Simple P-Controller interpolation
+            # Moves the current state 15% closer to the target every frame (visual smoothing)
+            self.current_joints[name] += 0.15 * (self.target_joints[name] - self.current_joints[name])
+            
+            msg = JointState()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.name = self.joint_names.get(name, [])
+            msg.position = self.current_joints[name].tolist()
+            
+            output = ",".join(f"{x:.2f}" for x in msg.position)
+            print(f"ROBOT[{name}] joint_states[{output}]")
+            self.robot_publishers[name].publish(msg)
+
+    def target_callback(self, msg: JointState, robot_name: str):
+        """Receives target joints from synapse_main_node and updates specific robot."""
         if msg.position:
-            # Handle potential length mismatches cleanly during development
-            length = min(len(msg.position), len(self.target))
-            self.target[:length] = np.array(msg.position)[:length]
-
-    def publish_state(self):
-        # Simulate physical movement (P-controller towards target)
-        error = self.target - self.current_joints
-        
-        # Proportional step simulating motor movement over the dt window
-        # Kp = 0.1 for smooth dummy interpolation
-        step = 0.1 * error 
-        self.current_joints += step
-
-        # Construct and publish observation back to BT Node
-        msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.name = self.joint_names
-        msg.position = self.current_joints.tolist()
-        
-        self.pub_joint_states.publish(msg)
+            incoming_target = np.array(msg.position, dtype=np.float32)
+            self.target_joints[robot_name] = incoming_target
+            self.joint_names[robot_name] = msg.name
+            
+            # If this is the very first message, snap the current joints to the target 
+            # to initialize the array shape and prevent a wild jump from zero.
+            if len(self.current_joints[robot_name]) != len(incoming_target):
+                self.current_joints[robot_name] = incoming_target.copy()
 
 def main(args=None):
     rclpy.init(args=args)
