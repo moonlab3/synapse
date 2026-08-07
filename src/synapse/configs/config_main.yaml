@@ -120,7 +120,6 @@ dual_arm_multi_brain:
 
 dual_armhand_manual:
   scenario_filename: "scn_pilot.yaml"
-  # embodiment_name: "DUAL_PANDA_V5"
   embodiment_name: "DUAL_XARM_V5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
