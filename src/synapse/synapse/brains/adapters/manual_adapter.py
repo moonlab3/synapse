@@ -58,8 +58,10 @@ def solve_ik_jit(
 class ManualAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        self.step_size = 0.05
+        self.step_size = 0.1
+        self.hand_step_size = 0.1
         self.current_eef_poses = {}
+        self.currnet_hand_joints = {}
         self.terminal = terminal
 
         parser = EmbodimentParser(self.embodiment_name)
@@ -68,13 +70,16 @@ class ManualAdapter(BaseBrainAdapter):
         dummy_se3 = jaxlie.SE3.identity()
         self.robots = {}
         self.eef_frame = {}
+        terminal.wait_debug("manual adapter robot load")
         for name, cfg in self.robots_cfg.items():
-            if cfg.get('yourdfpy_description'):
-                urdf = load_robot_description(cfg.get('description_name'))
-            else:
-                urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
-            self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
             if cfg.get('type') == 'manipulator':
+                terminal.wait_debug(f"[{name}]: [{cfg}]")
+                if cfg.get('yourdfpy_description'):
+                    urdf = load_robot_description(cfg.get('description_name'))
+                else:
+                    urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
+                self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
+
                 self.eef_frame[name] = cfg.get('eef_frame')
                 dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
                 dummy_q = jnp.zeros(self.robots[name].joints.num_actuated_joints)
@@ -83,6 +88,11 @@ class ManualAdapter(BaseBrainAdapter):
         print("⚡ JAX IK Compiler ready. Solving at microseconds.")
         print("Manual Mode Key input: eef pose +x [s], +y [d], +z[f], +roll[w], +pitch[e], +yaw[r]")
         print("                       eef pose -x [S], -y [D], -z[F], -roll[W], -pitch[E], -yaw[R]")
+        print("Hand Selection:[i] Toggle Active Hand")
+        print("Hand Fingers:  Bend [g, h, j, k, l] -> Thumb, Index, Middle, Ring, Little")
+        print("               Unbend [G, H, J, K, L]")
+        terminal.wait_debug("manual adapter init done")
+
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
         """Convert jaxlie.SE3 to a list of [x, y, z, roll, pitch, yaw]."""
@@ -246,6 +256,8 @@ class ManualAdapter(BaseBrainAdapter):
         """
         command = formatted_obs.get("command")
         eef_poses = formatted_obs.get("eef_poses", {})
+        original_joints = formatted_obs.get("original_joints", {})
+        target_joints_out ={}
 
         # 1. Initialize the Target Selector on the first run
         if not hasattr(self, 'manipulator_names'):
@@ -253,45 +265,91 @@ class ManualAdapter(BaseBrainAdapter):
             self.manipulator_names = [name for name, cfg in self.robots_cfg.items() if cfg.get('type') == 'manipulator']
             self.active_robot_idx = 0 if self.manipulator_names else -1
 
+            self.hand_names = [name for name, cfg in self.robots_cfg.items() if cfg.get('type') == 'end-effector']
+            self.active_hand_idx = 0 if self.hand_names else -1
+
+        for h_name in self.hand_names:
+            if h_name not in self.current_hand_joints and h_name in original_joints and original_joints[h_name].position:
+                self.current_hand_joints[h_name] = list(original_joints[h_name].position)
+
         # 2. Process Input
 
         if command is not None and self.manipulator_names:
             active_name = self.manipulator_names[self.active_robot_idx]
             
             # Switch controlled robot
-            if command == 'o':
+            if command == 'o' and self.manipulator_names:
                 self.active_robot_idx = (self.active_robot_idx + 1) % len(self.manipulator_names)
                 active_name = self.manipulator_names[self.active_robot_idx]
                 print(f"🔄 Switched manual control to: {active_name}")
                 
-            elif command == 'p':
+            elif command == 'p' and self.manipulator_names:
                 self.active_robot_idx = (self.active_robot_idx - 1) % len(self.manipulator_names)
                 active_name = self.manipulator_names[self.active_robot_idx]
                 print(f"🔄 Switched manual control to: {active_name}")
-                
-            # Apply kinematics deltas to the active robot
-            elif len(command) == 1 and active_name in eef_poses:
-                pose = eef_poses[active_name]
-                match command:
-                    case 's': pose[0] += self.step_size
-                    case 'S': pose[0] -= self.step_size
-                    case 'd': pose[1] += self.step_size
-                    case 'D': pose[1] -= self.step_size
-                    case 'f': pose[2] += self.step_size
-                    case 'F': pose[2] -= self.step_size
-                    case 'w': pose[3] += self.step_size
-                    case 'W': pose[3] -= self.step_size
-                    case 'e': pose[4] += self.step_size
-                    case 'E': pose[4] -= self.step_size
-                    case 'r': pose[5] += self.step_size
-                    case 'R': pose[5] -= self.step_size
-                    case _:
-                        pass
-                
-                # Update the target dictionaries
-                eef_poses[active_name] = pose
-                self.current_eef_poses[active_name] = pose.copy()
 
-        # Repackage and return
+            elif command == 'i' and self.hand_names:
+                self.active_hand_idx = (self.active_hand_idx + 1) % len(self.hand_names)
+                print(f"🖐️ Switched manual hand control to: {self.hand_names[self.active_hand_idx]}")
+            # Apply kinematics deltas to the active robot
+            elif len(command) == 1:
+                if self.manipulator_names:
+                    active_name = self.manipulator_names[self.active_robot_idx]
+                    if active_name in eef_poses:
+                        pose = eef_poses[active_name]
+                        match command:
+                            case 's': pose[0] += self.step_size
+                            case 'S': pose[0] -= self.step_size
+                            case 'd': pose[1] += self.step_size
+                            case 'D': pose[1] -= self.step_size
+                            case 'f': pose[2] += self.step_size
+                            case 'F': pose[2] -= self.step_size
+                            case 'w': pose[3] += self.step_size
+                            case 'W': pose[3] -= self.step_size
+                            case 'e': pose[4] += self.step_size
+                            case 'E': pose[4] -= self.step_size
+                            case 'r': pose[5] += self.step_size
+                            case 'R': pose[5] -= self.step_size
+
+                        eef_poses[active_name] = pose
+                        self.current_eef_poses[active_name] = pose.copy()
+
+                if self.hand_names and self.active_hand_idx >= 0:
+                    active_hand = self.hand_names[self.active_hand_idx]
+                    if active_hand in self.currnet_hand_joints:
+                        joints = self.currnet_hand_joints[active_hand]
+                        dofs = len(joints)
+
+                        def apply_bend(finger_index, sign):
+                            start = finger_index * 4
+                            end = min(start + 4, dofs)
+                            for idx in range(start, end):
+                                joints[idx] += sign * self.hand_step_size
+
+                        match command:
+                            case 'g': apply_bend(0, 1)
+                            case 'G': apply_bend(0, -1)
+                            case 'h': apply_bend(1, 1)   # Index
+                            case 'H': apply_bend(1, -1)
+                            case 'j': apply_bend(2, 1)   # Middle
+                            case 'J': apply_bend(2, -1)
+                            case 'k': apply_bend(3, 1)   # Ring
+                            case 'K': apply_bend(3, -1)
+                            case 'l': apply_bend(4, 1)   # Little 
+                            case 'L': apply_bend(4, -1)
+                            
+                        self.current_hand_joints[active_hand] = joints
+
+        # 4. Pack Hand Joint States for the Muscle Layer
+        for h_name in self.hand_names:
+            if h_name in self.current_hand_joints and h_name in original_joints:
+                js = JointState()
+                js.header = original_joints[h_name].header
+                js.name = original_joints[h_name].name
+                js.position = self.current_hand_joints[h_name].copy()
+                target_joints_out[h_name] = js
+
         formatted_obs["eef_poses"] = eef_poses
+        formatted_obs["target_joints"] = target_joints_out
+
         return formatted_obs

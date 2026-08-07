@@ -1,23 +1,16 @@
 default:
-  # basic information
   scenario_filename: "scn_pilot.yaml"
   obs_buffer_window_size: 20
   bt_tick_frequency_hz: 50
   brain_option: "MANUAL"
   muscle_option: "DUMMY"
   embodiment_name: "SINGLE_PANDA_CAM"
-  # muscle information
   brain_registry:
     - "manual:MANUAL"
-  robot_description: True
-  description_name: "panda_description"
-  eef_frame: "panda_hand"
-  # dummy
   publish_rate_hz: 100
 
 
 gr00t_franka_test:
-  # basic
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -30,7 +23,6 @@ gr00t_franka_test:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
     default_command: "pick up the blue box"
-  # dummy
   publish_rate_hz: 100
 
   robot_description: True
@@ -38,7 +30,6 @@ gr00t_franka_test:
   eef_frame: "panda_hand"
 
 gr00t_franka_sim:
-  # basic
   scenario_filename: "scn_pilot.yaml"
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
@@ -48,9 +39,6 @@ gr00t_franka_sim:
 
   brain_registry:
     - "vla_franka:GR00T"
-  # gr00t
-  robot_description: True
-  description_name: "panda_description"
   vla_franka:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
@@ -69,27 +57,18 @@ fairino_manual_sim:
 
   brain_registry:
     - "manual_adapter:MANUAL"
-  # manual
-  robot_description: False
-  urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
-  eef_frame: "wrist3_link"
   # isaac sim
   publish_rate_hz: 100
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.usd"
-  robot_name: "fairino5_v6_robot"
-  robot_prim_path: "/World/fairino5_v6_robot"
 
 fairino_manual_real:
-  # basic
   embodiment_name: "SINGLE_FR5_V5HAND"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   brain_option: "MANUAL"
   muscle_option: "ISAAC"
-  # manual
-  robot_description: False
-  urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
-  eef_frame: "wrist3_link"
+  # robot_description: False
+  # urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
+  # eef_frame: "wrist3_link"
   # real
 
 multi_brain_test:
@@ -108,9 +87,6 @@ multi_brain_test:
     - "vla_pick:GR00T"
     - "vla_place:GR00T"
 
-  robot_description: True
-  description_name: "panda_description"
-  eef_frame: "panda_hand"
   ## vla_pick
   vla_pick:
     policy_ip: "172.16.6.101"
@@ -122,12 +98,8 @@ multi_brain_test:
     default_command: "place the box on the tray"
 
   publish_rate_hz: 100
-  # isaac
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
-  robot_name: "panda"
-  robot_prim_path: "/World/franka_set/Franka/panda"
 
-dual_arm_test:
+dual_arm_multi_brain:
   scenario_filename: "scn_pilot.yaml"
   embodiment_name: "DUAL_PANDA"
   bt_tick_frequency_hz: 50
@@ -139,15 +111,23 @@ dual_arm_test:
   brain_registry:
     - "manual_adapter:MANUAL"
     - "vla_left:GR00T"
-    - "vla_right:GR00T"
 
   vla_left:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
     default_command: "pick up the blue box"
-  vla_right:
-    policy_ip: "172.16.6.101"
-    policy_port: "8889"
-    default_command: "place the box on the tray"
+  publish_rate_hz: 100
+
+dual_armhand_manual:
+  scenario_filename: "scn_pilot.yaml"
+  # embodiment_name: "DUAL_PANDA_V5"
+  embodiment_name: "DUAL_XARM_V5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  muscle_option: "ISAAC"
+  brain_option: "MANUAL"
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
 
   publish_rate_hz: 100
