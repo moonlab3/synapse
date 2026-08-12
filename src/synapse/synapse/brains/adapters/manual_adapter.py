@@ -58,10 +58,10 @@ def solve_ik_jit(
 class ManualAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        self.step_size = 0.1
-        self.hand_step_size = 0.1
+        self.step_size = 0.3
+        self.hand_step_size = 0.3
         self.current_eef_poses = {}
-        self.currnet_hand_joints = {}
+        self.current_hand_joints = {}
         self.terminal = terminal
 
         parser = EmbodimentParser(self.embodiment_name)
@@ -119,6 +119,7 @@ class ManualAdapter(BaseBrainAdapter):
                 if not joint_state or not joint_state.position:
                     # Fallback to the last known pose if the robot hasn't published yet
                     eef_poses[name] = self.current_eef_poses.get(name, [0.0] * 6).copy()
+                    print(f"eef poses zero copy")
                     continue
 
                 # 1. Pad or truncate the joints to match the URDF's actuated joints perfectly
@@ -271,6 +272,7 @@ class ManualAdapter(BaseBrainAdapter):
         for h_name in self.hand_names:
             if h_name not in self.current_hand_joints and h_name in original_joints and original_joints[h_name].position:
                 self.current_hand_joints[h_name] = list(original_joints[h_name].position)
+                self.terminal.wait_debug(f"[{h_name}]position [{original_joints[h_name].position}]")
 
         # 2. Process Input
 
@@ -298,45 +300,48 @@ class ManualAdapter(BaseBrainAdapter):
                     if active_name in eef_poses:
                         pose = eef_poses[active_name]
                         match command:
-                            case 's': pose[0] += self.step_size
-                            case 'S': pose[0] -= self.step_size
-                            case 'd': pose[1] += self.step_size
-                            case 'D': pose[1] -= self.step_size
-                            case 'f': pose[2] += self.step_size
-                            case 'F': pose[2] -= self.step_size
-                            case 'w': pose[3] += self.step_size
-                            case 'W': pose[3] -= self.step_size
-                            case 'e': pose[4] += self.step_size
-                            case 'E': pose[4] -= self.step_size
-                            case 'r': pose[5] += self.step_size
-                            case 'R': pose[5] -= self.step_size
+                            case 's': pose[0] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'S': pose[0] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'd': pose[1] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'D': pose[1] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'f': pose[2] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'F': pose[2] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'w': pose[3] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'W': pose[3] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'e': pose[4] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'E': pose[4] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'r': pose[5] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 'R': pose[5] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case _: pass
 
                         eef_poses[active_name] = pose
                         self.current_eef_poses[active_name] = pose.copy()
 
                 if self.hand_names and self.active_hand_idx >= 0:
                     active_hand = self.hand_names[self.active_hand_idx]
-                    if active_hand in self.currnet_hand_joints:
-                        joints = self.currnet_hand_joints[active_hand]
+                    if active_hand in self.current_hand_joints:
+                        joints = self.current_hand_joints[active_hand]
                         dofs = len(joints)
 
                         def apply_bend(finger_index, sign):
-                            start = finger_index * 4
-                            end = min(start + 4, dofs)
+                            start = finger_index * 5
+                            end = min(start + 5, dofs)
+                            # start = finger_index * 4
+                            # end = min(start + 4, dofs)
                             for idx in range(start, end):
                                 joints[idx] += sign * self.hand_step_size
 
                         match command:
-                            case 'g': apply_bend(0, 1)
-                            case 'G': apply_bend(0, -1)
-                            case 'h': apply_bend(1, 1)   # Index
-                            case 'H': apply_bend(1, -1)
-                            case 'j': apply_bend(2, 1)   # Middle
-                            case 'J': apply_bend(2, -1)
-                            case 'k': apply_bend(3, 1)   # Ring
-                            case 'K': apply_bend(3, -1)
-                            case 'l': apply_bend(4, 1)   # Little 
-                            case 'L': apply_bend(4, -1)
+                            case 'g': apply_bend(0, 1); print(f"🖐️ [{command}]::[{active_hand}]")
+                            case 'G': apply_bend(0, -1); print(f"🖐️ [{command}]::[{active_hand}]")
+                            case 'h': apply_bend(1, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Index
+                            case 'H': apply_bend(1, -1); print(f"🖐️ [{command}]::[{active_hand}]")
+                            case 'j': apply_bend(2, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Middle
+                            case 'J': apply_bend(2, -1); print(f"🖐️ [{command}]::[{active_hand}]")
+                            case 'k': apply_bend(3, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Ring
+                            case 'K': apply_bend(3, -1); print(f"🖐️ [{command}]::[{active_hand}]")
+                            case 'l': apply_bend(4, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Little 
+                            case 'L': apply_bend(4, -1); print(f"🖐️ [{command}]::[{active_hand}]")
                             
                         self.current_hand_joints[active_hand] = joints
 
@@ -351,5 +356,6 @@ class ManualAdapter(BaseBrainAdapter):
 
         formatted_obs["eef_poses"] = eef_poses
         formatted_obs["target_joints"] = target_joints_out
+        # print("communicate_policy returned")
 
         return formatted_obs

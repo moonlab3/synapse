@@ -38,6 +38,7 @@ class BaseBrainAdapter(ABC, Node):
                     debug_strings.append(f"{robot_name}: [{pos_str}]")
             _chunk = " | ".join(debug_strings) 
         
+        # self.terminal.log(f"🧠🧠 return action chunk")
         return action_chunk
 
     @abstractmethod

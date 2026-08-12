@@ -3,7 +3,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription, LaunchContext
 from launch_ros.actions import Node
-from launch.actions import SetEnvironmentVariable, DeclareLaunchArgument, OpaqueFunction
+from launch.actions import SetEnvironmentVariable, DeclareLaunchArgument, OpaqueFunction, LogInfo
 from launch.substitutions import LaunchConfiguration
 
 def setup_launch(context: LaunchContext, *args, **kwargs):
@@ -62,15 +62,18 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
                 )
             )
         case "REAL_ROBOT":
-            nodes.append(
-                Node(
-                    package='synapse',
-                    executable='real_robot_node.py',
-                    output='screen',
-                    emulate_tty=True,
-                    parameters=[active_config],
-                )
-            )
+            nodes.append(LogInfo(msg="====================================="))
+            nodes.append(LogInfo(msg="🚨 PLEASE PREPARE YOUR REAL ROBOT! 🚨"))
+            nodes.append(LogInfo(msg="====================================="))
+            # nodes.append(
+            #     Node(
+            #         package='synapse',
+            #         executable='real_robot_node.py',
+            #         output='screen',
+            #         emulate_tty=True,
+            #         parameters=[active_config],
+            #     )
+            # )
             
     return nodes
 

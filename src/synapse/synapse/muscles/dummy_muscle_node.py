@@ -39,11 +39,12 @@ class DummyMuscleNode(Node):
                 functools.partial(self.target_callback, robot_name=name), 10)
 
             self.robot_publishers[name] = self.create_publisher(JointState, joint_states, 10)
-            dof = cfg.get('dof', 0)
+            # dof = cfg.get('dof', 0)
+            self.joint_names[name] = cfg.get('joint_names', [])
+            dof = len(self.joint_names[name])
 
             self.current_joints[name] = np.zeros(dof, dtype=np.float32)
             self.target_joints[name] = np.zeros(dof, dtype=np.float32)
-            self.joint_names[name] = cfg.get('joint_names', [])
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
 
@@ -89,7 +90,7 @@ class DummyMuscleNode(Node):
             msg.position = self.current_joints[name].tolist()
             
             output = ",".join(f"{x:.2f}" for x in msg.position)
-            print(f"ROBOT[{name}] joint_states[{output}]")
+            self.get_logger().info(f"ROBOT[{name}] joint_states[{output}]")
             self.robot_publishers[name].publish(msg)
 
     def target_callback(self, msg: JointState, robot_name: str):

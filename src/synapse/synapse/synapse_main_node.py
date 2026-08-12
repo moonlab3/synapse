@@ -45,22 +45,20 @@ class SynapseMainNode(Node):
             )
 
         self.terminal_ui = BackgroundTUI(self.get_parameter('debug_mode').value)
-        # self.terminal_ui.wait_debug("before getting parameters")
 
         embodiment_name = self.get_parameter('embodiment_name').value
-        self.tick_freq = self.get_parameter('bt_tick_frequency_hz').value
-        self.obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
-        self.brain_option = self.get_parameter('brain_option').value
-        self.muscle_option = self.get_parameter('muscle_option').value
+        tick_freq = self.get_parameter('bt_tick_frequency_hz').value
+        obs_buffer_size = self.get_parameter('obs_buffer_window_size').value
+        muscle_option = self.get_parameter('muscle_option').value
         registry_list = self.get_parameter('brain_registry').value
         scenario_filename = self.get_parameter('scenario_filename').value
+        if scenario_filename is None:
+            scenario_filename = "scn_pilot.yaml"
 
         all_params = self.get_parameters_by_prefix('')
         param_overrides = list(all_params.values())
 
         self.brain_adapters = {}
-
-        # self.terminal_ui.wait_debug("before adapters loading")
         for entry in registry_list:
             node_name, adapter_type = entry.split(':')
             self.brain_adapters[node_name] = BrainSelector.get_brain(
@@ -105,14 +103,13 @@ class SynapseMainNode(Node):
             target = cfg.get('target', f'/synapse/target/{name}')
             self.target_publishers[name] = self.create_publisher(JointState, target, 10)
 
-        self.terminal_ui.wait_debug("after embodiment parsing ")
         self.latest_images = {}
         self.latest_joints = {}
         self.updated_joints = set()
         self.expected_robots = set(robots.keys())
 
         self.action_buffer = ActionChunkBuffer()  # Manage action chunks from the brain
-        self.obs_buffer = deque(maxlen=self.obs_buffer_size)
+        self.obs_buffer = deque(maxlen=obs_buffer_size)
         
         # State
         self.inference_future = None
@@ -122,17 +119,15 @@ class SynapseMainNode(Node):
 
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
         
-        self.terminal_ui.log(f"⚙️  BT Tick Frequency: {self.tick_freq} Hz")
-        self.terminal_ui.log(f"⚙️  Observation Buffer Window Size: {self.obs_buffer_size}")
-        self.terminal_ui.log(f"⚙️️  Brain: {self.brain_option}, Muscle: {self.muscle_option}")
-        self.terminal_ui.log(f"⚙️️  Hardware Setup: {embodiment_name}")
+        self.terminal_ui.log(f"⚙️  BT Tick Frequency: {tick_freq} Hz, Observation Buffer Size: {obs_buffer_size}")
+        self.terminal_ui.log(f"⚙️️  Muscle: {muscle_option}, Embodiment Config: {embodiment_name}")
         self.terminal_ui.log("🎉 Synapse BT Node Ready.")
 
         self.to_brain = None
         self.last_command = self.last_command_to_show = ""
         self.running_default = True
         self.status = "Idle"
-        self.timer = self.create_timer(1.0 / self.tick_freq, self.tick)
+        self.timer = self.create_timer(1.0 / tick_freq, self.tick)
 
         
     def image_callback(self, msg: Image, topic_name: str):
@@ -167,14 +162,13 @@ class SynapseMainNode(Node):
         else:
             match key:
                 case 'v':
-                    self.terminal_ui.log("Quitting Synapse.")
                     self.pub_synapse_command.publish(String(data="QUIT"))
                     raise KeyboardInterrupt
                 case 'x' if not self.is_ticking:
                     self.is_ticking = True
                     self.status = "Running"
                     self.pub_synapse_command.publish(String(data="START"))
-                    self.terminal_ui.log(f"🌲🌲BT Ticking Started ({self.tick_freq}Hz).▶️ Status: {self.status}")
+                    self.terminal_ui.log(f"🌲🌲BT Ticking Started.▶️ Status: {self.status}")
                 case 'z' if self.is_ticking:
                     self.is_ticking = False
                     self.status = "Paused"
@@ -184,26 +178,16 @@ class SynapseMainNode(Node):
                     self.pub_synapse_command.publish(String(data="RESET"))
                 case '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0':
                     idx = int(key) - 1
-                    # self.terminal_ui.wait_debug(f"index{idx}, node_num:{self.brain_node_num}")
                     if idx + 1 <= self.brain_node_num:
                         self.running_brain = self.brain_node_list[idx]
                         self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
                         self.running_default = True
-                    
                 case None:
                     self.to_brain = None
                     pass
                 case _:
                     self.to_brain = self.last_command_to_show = key
-            
-        self.terminal_ui.update_status(
-            self.status, 
-            len(self.obs_buffer), 
-            self.action_buffer.get_length(), 
-            self.last_command_to_show, 
-            self.brain_node_map, 
-            self.running_brain
-        )
+
         if not self.is_ticking:
             return
 
@@ -215,7 +199,7 @@ class SynapseMainNode(Node):
             self.inference_future = None
         
         if self.inference_future is None and len(self.obs_buffer) > 0:
-             # Run inference in a separate thread to avoid blocking the BT tick
+            # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
             # self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
             self.inference_future = self.inference_executor.submit(
@@ -226,13 +210,21 @@ class SynapseMainNode(Node):
 
         action, status = self.action_buffer.pop_next_action()
 
-        # if status == "BUFFER_STARVATION_HOLD":
-        #     self.get_logger().warning("Action buffer starvation! Holding last valid action.")
+        self.terminal_ui.update_status(
+            self.status, 
+            len(self.obs_buffer), 
+            status, 
+            self.action_buffer.get_length(), 
+            self.last_command_to_show, 
+            self.brain_node_map, 
+            self.running_brain
+        )
 
         if action is not None:
             for robot, msg in action.items():
                 if robot in self.target_publishers:
                     self.target_publishers[robot].publish(msg)
+
 
 
 def main(args=None):

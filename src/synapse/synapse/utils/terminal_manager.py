@@ -22,7 +22,7 @@ class BackgroundTUI:
     def __init__(self, debug_mode=False):
         self.status = "Idle"
         self.obs_buffer_length = self.action_buffer_length = 0
-        self.current_command = self.brain_node_map = self.running_brain = ""
+        self.action_buffer_status = self.current_command = self.brain_node_map = self.running_brain = ""
         self.log_buffer = deque(maxlen=50)
         self.commands_queue = deque()
         self._running = True
@@ -84,6 +84,7 @@ class BackgroundTUI:
             with self._lock:
                 current_status = self.status
                 obs_buffer_length = self.obs_buffer_length
+                action_buffer_status = self.action_buffer_status
                 action_buffer_length = self.action_buffer_length
                 current_command = self.current_command
                 node_map = self.brain_node_map
@@ -99,7 +100,7 @@ class BackgroundTUI:
                 stdscr.addstr(3, 2, f"Status: {current_status}"[:max_x - 3], curses.A_BOLD)
                 stdscr.addstr(4, 2, f"Running: {running_brain}"[:max_x - 3], curses.A_BOLD)
                 stdscr.addstr(5, 2, f"Current Command: {current_command}"[:max_x - 3], curses.A_BOLD)
-                stdscr.addstr(6, 2, f"Action Buffer: {action_buffer_length}"[:max_x - 3])
+                stdscr.addstr(6, 2, f"Action Buffer Status: {action_buffer_status} ({action_buffer_length})"[:max_x - 3])
                 stdscr.addstr(7, 2, f"Observation Queue: {obs_buffer_length}"[:max_x - 3])
 
                 stdscr.hline(split_line, 0, curses.ACS_HLINE, max_x - 1)
@@ -156,10 +157,11 @@ class BackgroundTUI:
         with self._lock:
             self.log_buffer.append(f"[{timestamp}] {msg}")
 
-    def update_status(self, new_status, obs_buffer_length, action_buffer_length, command, node_map, running_brain):
+    def update_status(self, new_status, obs_buffer_length, action_buffer_status, action_buffer_length, command, node_map, running_brain):
         with self._lock:
             self.status = new_status
             self.obs_buffer_length = obs_buffer_length
+            self.action_buffer_status = action_buffer_status
             self.action_buffer_length = action_buffer_length
             self.current_command = command
             self.brain_node_map = node_map

@@ -1,16 +1,17 @@
 default:
-  scenario_filename: "scn_pilot.yaml"
   obs_buffer_window_size: 20
   bt_tick_frequency_hz: 50
   brain_option: "MANUAL"
   muscle_option: "DUMMY"
   embodiment_name: "SINGLE_PANDA_CAM"
+  # embodiment_name: "SINGLE_FR5"
   brain_registry:
     - "manual:MANUAL"
   publish_rate_hz: 100
 
 
 gr00t_franka_test:
+  scenario_filename: "scn_pilot.yaml"
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -60,16 +61,6 @@ fairino_manual_sim:
   # isaac sim
   publish_rate_hz: 100
 
-fairino_manual_real:
-  embodiment_name: "SINGLE_FR5_V5HAND"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-  brain_option: "MANUAL"
-  muscle_option: "ISAAC"
-  # robot_description: False
-  # urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
-  # eef_frame: "wrist3_link"
-  # real
 
 multi_brain_test:
   # basic
@@ -78,7 +69,7 @@ multi_brain_test:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
 
-  muscle_option: "DUMMY"
+  muscle_option: "ISAAC"
   brain_option: "GR00T"
 
   # brain
@@ -120,7 +111,34 @@ dual_arm_multi_brain:
 
 dual_armhand_manual:
   scenario_filename: "scn_pilot.yaml"
-  embodiment_name: "DUAL_XARM_V5"
+  embodiment_name: "DUAL_PANDA_V5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  muscle_option: "ISAAC"
+  # muscle_option: "DUMMY"
+  brain_option: "MANUAL"
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
+
+  publish_rate_hz: 100
+
+fr5_real:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "SINGLE_FR5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  muscle_option: "REAL_ROBOT"
+  brain_option: "MANUAL"
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
+
+  publish_rate_hz: 100
+  
+single_armhand:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "SINGLE_PANDAV4"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   muscle_option: "ISAAC"

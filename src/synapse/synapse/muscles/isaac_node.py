@@ -64,6 +64,7 @@ from isaacsim.core.api.physics_context import PhysicsContext
 from omni.isaac.sensor import Camera
 import omni.usd
 import functools
+import torch
 
 class IsaacNode(Node):
     def __init__(self, node_name="isaac_node", parameter_overrides=None):
@@ -140,12 +141,17 @@ class IsaacNode(Node):
             case _:
                 self.get_logger().warn(f"Unknown command received: {command}")
 
+    def _to_host_numpy(self, data):
+        if hasattr(data, 'cpu'):
+            return data.detach().cpu().numpy()
+        return np.array(data)
+
     def _setup_isaac_sim(self):
 
         self.get_logger().info(f"Opening stage: {self.usd_path}")
         omni.usd.get_context().open_stage(self.usd_path)
         dt = 1.0 / self.publish_rate
-        self.world = World(physics_dt=dt, rendering_dt=dt, stage_units_in_meters=1.0)
+        self.world = World(physics_dt=dt, rendering_dt=dt, stage_units_in_meters=1.0, backend="torch", device="cuda:0")
         self.world._physics_context = PhysicsContext(prim_path="/World/PhysicsScene")
 
         self.get_logger().info("Articulation Initializing =================")
@@ -158,16 +164,21 @@ class IsaacNode(Node):
             else:
                 articulation = self.world.scene.get_object(name)
 
-            self.get_logger().info(f"Articulation [{name}] initialized")
             self.articulations[name] = articulation
+            self.get_logger().info(f"Articulation [{name}] initialized")
 
         self.world.reset()
+        self.get_logger().info(f"Isaac Sim World reset")
 
         for name, articulation in self.articulations.items():
             articulation.initialize()
 
-            init_pos = articulation.get_joint_positions()[0]
+            # init_pos = articulation.get_joint_positions()[0]
+            init_pos = self._to_host_numpy(articulation.get_joint_positions()[0])
+
             self.initial_positions[name] = init_pos
+            if hasattr(init_pos, 'cpu'):
+                init_pos = init_pos.detach().cpu().numpy()
             self.target_joints[name] = np.array(init_pos, dtype=np.float32)
             self.get_logger().info(f"Articulation [{name}] Initial Positions")
 
@@ -208,12 +219,14 @@ class IsaacNode(Node):
         if msg.position and self.reset_process >= 100:
             if msg.name:
                 # 1. Safely route values using zip to inherently protect against length mismatches
+                # self.get_logger().info(f"callback:[{msg.name}]")
                 for joint_name, joint_pos in zip(msg.name, msg.position):
                     if joint_name in self.joint_names[robot_name]:
                         sim_idx = self.joint_names[robot_name].index(joint_name)
                         self.target_joints[robot_name][sim_idx] = joint_pos
             else:
                 # 2. Fallback: Copy directly up to the physical DOF limit
+                self.get_logger().info("no msg name")
                 copy_len = min(len(msg.position), len(self.target_joints[robot_name]))
                 self.target_joints[robot_name][:copy_len] = msg.position[:copy_len]
 
@@ -231,13 +244,21 @@ class IsaacNode(Node):
                     self.reset_process += 1
 
                 for name, articulation in self.articulations.items():
-                    articulation.set_joint_position_targets(self.target_joints[name].reshape(1, -1))
+                    # articulation.set_joint_position_targets(self.target_joints[name].reshape(1, -1))
+                    target_tensor = torch.tensor(
+                        self.target_joints[name],
+                        dtype=torch.float32,
+                        device=self.world.get_physics_context().device
+                    )
+                    articulation.set_joint_position_targets(target_tensor.reshape(1, -1))
 
                 self.world.step(render=True)
                 simulation_app.update()
+                # self.get_logger().info("isaac spin")
 
                 for name, articulation in self.articulations.items():
-                    current_positions = articulation.get_joint_positions()[0]
+                    # current_positions = articulation.get_joint_positions()[0]
+                    current_positions = self._to_host_numpy(articulation.get_joint_positions()[0])
 
                     msg = JointState()
                     msg.header.stamp = self.get_clock().now().to_msg()
