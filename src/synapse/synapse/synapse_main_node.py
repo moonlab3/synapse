@@ -74,6 +74,7 @@ class SynapseMainNode(Node):
         self.running_brain = self.brain_node_list[0]
         for i, name in enumerate(self.brain_node_list):
             self.brain_node_map += f"[{i+1}: {name}]  "
+        self.terminal_ui.log(f"⚙️ ros2 brains{self.brain_node_map} initialized")
 
         scenario_parser = ScenarioParser(synapse_node=self)
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
@@ -103,6 +104,7 @@ class SynapseMainNode(Node):
             target = cfg.get('target', f'/synapse/target/{name}')
             self.target_publishers[name] = self.create_publisher(JointState, target, 10)
 
+        self.terminal_ui.log(f"⚙️ ros2 topics initialized")
         self.latest_images = {}
         self.latest_joints = {}
         self.updated_joints = set()
@@ -115,7 +117,6 @@ class SynapseMainNode(Node):
         self.inference_future = None
         self.inference_executor = ThreadPoolExecutor(max_workers=1)  # Dedicated thread for inference
         self.is_ticking = False
-        self.latest_image = None
 
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
         
@@ -132,7 +133,6 @@ class SynapseMainNode(Node):
         
     def image_callback(self, msg: Image, topic_name: str):
         frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
-        self.latest_image = frame
         self.latest_images[topic_name] = frame
 
     def obs_callback(self, msg: JointState, topic_name: str):

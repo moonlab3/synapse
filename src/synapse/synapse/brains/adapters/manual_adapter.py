@@ -70,10 +70,8 @@ class ManualAdapter(BaseBrainAdapter):
         dummy_se3 = jaxlie.SE3.identity()
         self.robots = {}
         self.eef_frame = {}
-        terminal.wait_debug("manual adapter robot load")
         for name, cfg in self.robots_cfg.items():
             if cfg.get('type') == 'manipulator':
-                terminal.wait_debug(f"[{name}]: [{cfg}]")
                 if cfg.get('yourdfpy_description'):
                     urdf = load_robot_description(cfg.get('description_name'))
                 else:
@@ -84,6 +82,8 @@ class ManualAdapter(BaseBrainAdapter):
                 dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
                 dummy_q = jnp.zeros(self.robots[name].joints.num_actuated_joints)
                 _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q) 
+            elif cfg.get('type') == 'end-effector':
+                self.single_finger_dofs = cfg.get('single_finger_dofs', 5)
 
         print("⚡ JAX IK Compiler ready. Solving at microseconds.")
         print("Manual Mode Key input: eef pose +x [s], +y [d], +z[f], +roll[w], +pitch[e], +yaw[r]")
@@ -91,7 +91,6 @@ class ManualAdapter(BaseBrainAdapter):
         print("Hand Selection:[i] Toggle Active Hand")
         print("Hand Fingers:  Bend [g, h, j, k, l] -> Thumb, Index, Middle, Ring, Little")
         print("               Unbend [G, H, J, K, L]")
-        terminal.wait_debug("manual adapter init done")
 
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
@@ -106,10 +105,6 @@ class ManualAdapter(BaseBrainAdapter):
         return jaxlie.SE3.from_rotation_and_translation(rotation, translation)
 
     def _forward_kinematics(self, joint_states_dict: dict) -> dict:
-        """
-        Iterates over all robots. If it's a manipulator, solves FK.
-        Returns a dictionary: { "robot_name": [x, y, z, roll, pitch, yaw], ... }
-        """
         eef_poses = {}
         
         for name, cfg in self.robots_cfg.items():
@@ -117,12 +112,10 @@ class ManualAdapter(BaseBrainAdapter):
                 joint_state = joint_states_dict.get(name)
                 
                 if not joint_state or not joint_state.position:
-                    # Fallback to the last known pose if the robot hasn't published yet
                     eef_poses[name] = self.current_eef_poses.get(name, [0.0] * 6).copy()
                     print(f"eef poses zero copy")
                     continue
 
-                # 1. Pad or truncate the joints to match the URDF's actuated joints perfectly
                 expected_dofs = self.robots[name].joints.num_actuated_joints
                 raw_q = jnp.array(joint_state.position)
                 
@@ -133,23 +126,15 @@ class ManualAdapter(BaseBrainAdapter):
                 else:
                     q_fk = raw_q
                 
-                # 2. PyRoki FK query
                 all_link_poses = self.robots[name].forward_kinematics(q_fk)
                 eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
                 
-                # 3. Convert 7D array back to SE3 and then to our [x, y, z, r, p, y] list
                 eef_se3 = jaxlie.SE3(all_link_poses[eef_idx])
                 eef_poses[name] = self._se3_to_list(eef_se3)
-                
-                # Cache for fallbacks
                 self.current_eef_poses[name] = eef_poses[name].copy()
-                
         return eef_poses
+
     def _inverse_kinematics(self, eef_poses_dict: dict, original_joint_states: dict) -> dict:
-        """
-        Iterates over manipulators, taking their target EEF poses and original joints,
-        and solves IK. Returns a dictionary of Target JointStates.
-        """
         target_joints = {}
         
         for name, cfg in self.robots_cfg.items():
@@ -158,13 +143,11 @@ class ManualAdapter(BaseBrainAdapter):
                 eef_pose = eef_poses_dict.get(name)
                 
                 if not original_js or not original_js.position or not eef_pose:
-                    # Skip or hold position if data is missing
                     target_joints[name] = original_js if original_js else JointState()
                     continue
 
                 target_se3 = self._list_to_se3(eef_pose)
                 
-                # Setup warm-start seed
                 expected_dofs = self.robots[name].joints.num_actuated_joints
                 raw_q = jnp.array(original_js.position)
 
@@ -178,7 +161,6 @@ class ManualAdapter(BaseBrainAdapter):
                 eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
                 target_link_idx_jax = jnp.array(eef_idx, dtype=jnp.int32)
                 
-                # ⚡ Execute JIT-Compiled IK
                 optimized_q = solve_ik_jit(
                     self.robots[name],
                     target_se3,
@@ -186,7 +168,6 @@ class ManualAdapter(BaseBrainAdapter):
                     ik_seed_q
                 )
 
-                # Reconstruct full ROS 2 message 
                 final_position = list(original_js.position) 
                 for i in range(min(len(optimized_q), len(final_position))):
                     final_position[i] = float(optimized_q[i])
@@ -201,18 +182,11 @@ class ManualAdapter(BaseBrainAdapter):
         return target_joints
 
     def _format_for_policy(self, obs_history: list, get_default) -> dict:
-        """
-        Extracts the synchronized multi-robot dictionaries from the BT node's buffer,
-        calculates FK for the arms, and hands a unified state to the policy.
-        """
         latest_obs = obs_history[-1]
-        
-        # Plural dictionaries natively synced by synapse_main_node.py
         joints_dict = latest_obs.get("joints", {})
         images_dict = latest_obs.get("images", {})
         command = latest_obs.get("command")
         
-        # Get EEF poses ONLY for the arms/manipulators
         eef_poses = self._forward_kinematics(joints_dict)
         
         return {
@@ -223,28 +197,18 @@ class ManualAdapter(BaseBrainAdapter):
         }
 
     def _format_for_muscle(self, raw_action: dict) -> list:
-        """
-        Takes the policy's multi-robot action dictionary, applies IK to the arms, 
-        passes the hand targets through, and formats them into the dynamic topic map.
-        """
         eef_poses = raw_action.get("eef_poses", {})
         original_joints = raw_action.get("original_joints", {})
         
-        # Optional: AI policies might directly specify joint targets for hands
         target_joints_from_policy = raw_action.get("target_joints", {})
         
-        # 1. Solve IK strictly for the manipulators
         manipulator_targets = self._inverse_kinematics(eef_poses, original_joints)
         
-        # 2. Build the final dispatch dictionary for the BT Node
         target_dict = {}
         for name, cfg in self.robots_cfg.items():
             if cfg.get('type') == 'manipulator':
-                # Grab the solved IK
                 target_dict[name] = manipulator_targets.get(name, JointState())
             else:
-                # Non-manipulators (Hands, Mobile Bases) bypass IK entirely.
-                # If the policy provided a target joint state, use it. Otherwise, hold current.
                 fallback_joints = original_joints.get(name, JointState())
                 target_dict[name] = target_joints_from_policy.get(name, fallback_joints)
         
@@ -260,90 +224,95 @@ class ManualAdapter(BaseBrainAdapter):
         original_joints = formatted_obs.get("original_joints", {})
         target_joints_out ={}
 
-        # 1. Initialize the Target Selector on the first run
         if not hasattr(self, 'manipulator_names'):
-            # Filter out hands/mobile bases to only get IK-controllable arms
             self.manipulator_names = [name for name, cfg in self.robots_cfg.items() if cfg.get('type') == 'manipulator']
-            self.active_robot_idx = 0 if self.manipulator_names else -1
+            # self.active_robot_idx = 0 if self.manipulator_names else -1
+            self.active_robot_idx = len(self.manipulator_names) if self.manipulator_names else -1
 
             self.hand_names = [name for name, cfg in self.robots_cfg.items() if cfg.get('type') == 'end-effector']
-            self.active_hand_idx = 0 if self.hand_names else -1
+            # self.active_hand_idx = 0 if self.hand_names else -1
+            self.active_hand_idx = len(self.hand_names) if self.hand_names else -1
 
         for h_name in self.hand_names:
             if h_name not in self.current_hand_joints and h_name in original_joints and original_joints[h_name].position:
                 self.current_hand_joints[h_name] = list(original_joints[h_name].position)
                 self.terminal.wait_debug(f"[{h_name}]position [{original_joints[h_name].position}]")
 
-        # 2. Process Input
+        if command is not None:
+            active_arm_name = (
+                self.manipulator_names[self.active_robot_idx]
+                if self.manipulator_names and self.active_robot_idx < len(self.manipulator_names)
+                else "ALL ARMS"
+            )
+            # self.terminal.wait_debug(f"Active Arm:[{active_arm_name}] with command [{command}]")
 
-        if command is not None and self.manipulator_names:
-            active_name = self.manipulator_names[self.active_robot_idx]
-            
-            # Switch controlled robot
             if command == 'o' and self.manipulator_names:
-                self.active_robot_idx = (self.active_robot_idx + 1) % len(self.manipulator_names)
-                active_name = self.manipulator_names[self.active_robot_idx]
-                print(f"🔄 Switched manual control to: {active_name}")
+                self.active_robot_idx = (self.active_robot_idx + 1) % (len(self.manipulator_names) + 1)
+                active_arm_name = self.manipulator_names[self.active_robot_idx] if self.active_robot_idx < len(self.manipulator_names) else "ALL ARMS"
+                print(f"🔄 Switched manual control to: {active_arm_name}")
                 
             elif command == 'p' and self.manipulator_names:
                 self.active_robot_idx = (self.active_robot_idx - 1) % len(self.manipulator_names)
-                active_name = self.manipulator_names[self.active_robot_idx]
-                print(f"🔄 Switched manual control to: {active_name}")
+                active_arm_name = self.manipulator_names[self.active_robot_idx]
+                print(f"🔄 Switched manual control to: {active_arm_name}")
 
             elif command == 'i' and self.hand_names:
-                self.active_hand_idx = (self.active_hand_idx + 1) % len(self.hand_names)
-                print(f"🖐️ Switched manual hand control to: {self.hand_names[self.active_hand_idx]}")
+                self.active_hand_idx = (self.active_hand_idx + 1) % (len(self.hand_names) + 1)
+                active_hand_name = self.hand_names[self.active_hand_idx] if self.active_hand_idx < len(self.hand_names) else "ALL HANDS"
+                print(f"🖐️ Switched manual hand control to: {active_hand_name}")
+
             # Apply kinematics deltas to the active robot
             elif len(command) == 1:
-                if self.manipulator_names:
-                    active_name = self.manipulator_names[self.active_robot_idx]
-                    if active_name in eef_poses:
-                        pose = eef_poses[active_name]
+                if self.manipulator_names and self.active_robot_idx >= 0:
+                    active_arms = self.manipulator_names if self.active_robot_idx == len(self.manipulator_names) else [self.manipulator_names[self.active_robot_idx]]
+                    for active_arm_name in active_arms:
+                        pose = eef_poses[active_arm_name]
                         match command:
-                            case 's': pose[0] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'S': pose[0] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'd': pose[1] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'D': pose[1] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'f': pose[2] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'F': pose[2] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'w': pose[3] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'W': pose[3] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'e': pose[4] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'E': pose[4] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'r': pose[5] += self.step_size; print(f"💪 [{command}]::[{active_name}]")
-                            case 'R': pose[5] -= self.step_size; print(f"💪 [{command}]::[{active_name}]")
+                            case 's': pose[0] += self.step_size
+                            case 'S': pose[0] -= self.step_size
+                            case 'd': pose[1] += self.step_size
+                            case 'D': pose[1] -= self.step_size
+                            case 'f': pose[2] += self.step_size
+                            case 'F': pose[2] -= self.step_size
+                            case 'w': pose[3] += self.step_size
+                            case 'W': pose[3] -= self.step_size
+                            case 'e': pose[4] += self.step_size
+                            case 'E': pose[4] -= self.step_size
+                            case 'r': pose[5] += self.step_size
+                            case 'R': pose[5] -= self.step_size
                             case _: pass
 
-                        eef_poses[active_name] = pose
-                        self.current_eef_poses[active_name] = pose.copy()
+                        eef_poses[active_arm_name] = pose
+                        self.current_eef_poses[active_arm_name] = pose.copy()
 
                 if self.hand_names and self.active_hand_idx >= 0:
-                    active_hand = self.hand_names[self.active_hand_idx]
-                    if active_hand in self.current_hand_joints:
-                        joints = self.current_hand_joints[active_hand]
-                        dofs = len(joints)
+                    active_hands = self.hand_names if self.active_hand_idx == len(self.hand_names) else [self.hand_names[self.active_hand_idx]]
+                    for active_hand_name in active_hands:
+                        if active_hand_name in self.current_hand_joints:
+                            joints = self.current_hand_joints[active_hand_name]
+                            dofs = len(joints)
 
-                        def apply_bend(finger_index, sign):
-                            start = finger_index * 5
-                            end = min(start + 5, dofs)
-                            # start = finger_index * 4
-                            # end = min(start + 4, dofs)
-                            for idx in range(start, end):
-                                joints[idx] += sign * self.hand_step_size
+                            def apply_bend(finger_index, sign):
+                                start = finger_index * self.single_finger_dofs
+                                end = min(start + self.single_finger_dofs, dofs)
+                                # start = finger_index * 4
+                                # end = min(start + 4, dofs)
+                                for idx in range(start, end):
+                                    joints[idx] += sign * self.hand_step_size
 
-                        match command:
-                            case 'g': apply_bend(0, 1); print(f"🖐️ [{command}]::[{active_hand}]")
-                            case 'G': apply_bend(0, -1); print(f"🖐️ [{command}]::[{active_hand}]")
-                            case 'h': apply_bend(1, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Index
-                            case 'H': apply_bend(1, -1); print(f"🖐️ [{command}]::[{active_hand}]")
-                            case 'j': apply_bend(2, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Middle
-                            case 'J': apply_bend(2, -1); print(f"🖐️ [{command}]::[{active_hand}]")
-                            case 'k': apply_bend(3, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Ring
-                            case 'K': apply_bend(3, -1); print(f"🖐️ [{command}]::[{active_hand}]")
-                            case 'l': apply_bend(4, 1); print(f"🖐️ [{command}]::[{active_hand}]")   # Little 
-                            case 'L': apply_bend(4, -1); print(f"🖐️ [{command}]::[{active_hand}]")
-                            
-                        self.current_hand_joints[active_hand] = joints
+                            match command:
+                                case 'g': apply_bend(0, 1)
+                                case 'G': apply_bend(0, -1)
+                                case 'h': apply_bend(1, 1)
+                                case 'H': apply_bend(1, -1)
+                                case 'j': apply_bend(2, 1)
+                                case 'J': apply_bend(2, -1)
+                                case 'k': apply_bend(3, 1)
+                                case 'K': apply_bend(3, -1)
+                                case 'l': apply_bend(4, 1)
+                                case 'L': apply_bend(4, -1)
+                                
+                            self.current_hand_joints[active_hand_name] = joints
 
         # 4. Pack Hand Joint States for the Muscle Layer
         for h_name in self.hand_names:
@@ -356,6 +325,5 @@ class ManualAdapter(BaseBrainAdapter):
 
         formatted_obs["eef_poses"] = eef_poses
         formatted_obs["target_joints"] = target_joints_out
-        # print("communicate_policy returned")
 
         return formatted_obs

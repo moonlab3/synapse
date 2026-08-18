@@ -39,7 +39,6 @@ class DummyMuscleNode(Node):
                 functools.partial(self.target_callback, robot_name=name), 10)
 
             self.robot_publishers[name] = self.create_publisher(JointState, joint_states, 10)
-            # dof = cfg.get('dof', 0)
             self.joint_names[name] = cfg.get('joint_names', [])
             dof = len(self.joint_names[name])
 

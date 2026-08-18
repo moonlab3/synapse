@@ -55,6 +55,7 @@ DUAL_PANDA:
     panda_left:
       type: "manipulator"
       eef_frame: "panda_hand"
+      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
       yourdfpy_description: true
       description_name: "panda_description"
       name: "franka_left"
@@ -65,6 +66,7 @@ DUAL_PANDA:
     panda_right:
       type: "manipulator"
       eef_frame: "panda_hand"
+      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
       yourdfpy_description: true
       description_name: "panda_description"
       name: "franka_right"

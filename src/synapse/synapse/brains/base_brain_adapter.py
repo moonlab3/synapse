@@ -10,10 +10,7 @@ class BaseBrainAdapter(ABC, Node):
             automatically_declare_parameters_from_overrides=True
         )
         self.embodiment_name = self.get_parameter('embodiment_name').value
-
-        self.robot_description = self.get_parameter('robot_description').value
         self.terminal = terminal
-        terminal.wait_debug("BaseBrain Initiation Done")
 
     def infer(self, obs_history: list, get_default: False) -> list:
         if not obs_history:
@@ -29,16 +26,17 @@ class BaseBrainAdapter(ABC, Node):
         # 3. Format action for muscle wrapper (and apply IK if needed)
         action_chunk = self._format_for_muscle(raw_action)
 
-        if action_chunk and isinstance(action_chunk[0], dict):
-            debug_strings = []
-            # Iterate through all robots in the timestep dictionary
-            for robot_name, msg in action_chunk[0].items():
-                if hasattr(msg, 'position') and msg.position:
-                    pos_str = ", ".join(f"{v:.3f}" for v in msg.position)
-                    debug_strings.append(f"{robot_name}: [{pos_str}]")
-            _chunk = " | ".join(debug_strings) 
+        # if action_chunk and isinstance(action_chunk[0], dict):
+        #     debug_strings = []
+        #     # Iterate through all robots in the timestep dictionary
+        #     for robot_name, msg in action_chunk[0].items():
+        #         if hasattr(msg, 'position') and msg.position:
+        #             pos_str = ", ".join(f"{v:.3f}" for v in msg.position)
+        #             debug_strings.append(f"{robot_name}: [{pos_str}]")
+        #     _chunk = " | ".join(debug_strings) 
         
-        # self.terminal.log(f"🧠🧠 return action chunk")
+        # self.terminal.log(f"🧠🧠 return {_chunk}")
+
         return action_chunk
 
     @abstractmethod

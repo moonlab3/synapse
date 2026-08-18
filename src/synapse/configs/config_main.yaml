@@ -1,7 +1,6 @@
 default:
   obs_buffer_window_size: 20
   bt_tick_frequency_hz: 50
-  brain_option: "MANUAL"
   muscle_option: "DUMMY"
   embodiment_name: "SINGLE_PANDA_CAM"
   # embodiment_name: "SINGLE_FR5"
@@ -15,7 +14,6 @@ gr00t_franka_test:
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  brain_option: "GR00T"
   muscle_option: "DUMMY"
   brain_registry:
     - "vla_franka:GR00T"
@@ -35,7 +33,6 @@ gr00t_franka_sim:
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  brain_option: "GR00T"
   muscle_option: "ISAAC"
 
   brain_registry:
@@ -53,7 +50,6 @@ fairino_manual_sim:
   embodiment_name: "SINGLE_FR5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  brain_option: "MANUAL"
   muscle_option: "ISAAC"
 
   brain_registry:
@@ -70,7 +66,6 @@ multi_brain_test:
   obs_buffer_window_size: 20
 
   muscle_option: "ISAAC"
-  brain_option: "GR00T"
 
   # brain
   brain_registry:
@@ -90,23 +85,26 @@ multi_brain_test:
 
   publish_rate_hz: 100
 
-dual_arm_multi_brain:
+dual_arm_dummy:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "DUAL_PANDA"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+
+  muscle_option: "DUMMY"
+  brain_registry:
+    - "manual_adapter:MANUAL"
+  publish_rate_hz: 100
+
+dual_arm:
   scenario_filename: "scn_pilot.yaml"
   embodiment_name: "DUAL_PANDA"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
 
   muscle_option: "ISAAC"
-  brain_option: "GR00T"
-
   brain_registry:
     - "manual_adapter:MANUAL"
-    - "vla_left:GR00T"
-
-  vla_left:
-    policy_ip: "172.16.6.101"
-    policy_port: "8888"
-    default_command: "pick up the blue box"
   publish_rate_hz: 100
 
 dual_armhand_manual:
@@ -116,7 +114,6 @@ dual_armhand_manual:
   obs_buffer_window_size: 20
   muscle_option: "ISAAC"
   # muscle_option: "DUMMY"
-  brain_option: "MANUAL"
 
   brain_registry:
     - "manual_adapter:MANUAL"
@@ -129,7 +126,6 @@ fr5_real:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   muscle_option: "REAL_ROBOT"
-  brain_option: "MANUAL"
 
   brain_registry:
     - "manual_adapter:MANUAL"
@@ -142,9 +138,29 @@ single_armhand:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   muscle_option: "ISAAC"
-  brain_option: "MANUAL"
 
   brain_registry:
     - "manual_adapter:MANUAL"
 
+  publish_rate_hz: 100
+
+
+rviz_test:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "SINGLE_FR5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+
+  muscle_option: "RVIZ"
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
+    # - "rosbag_adapter:ROSBAG"
+  
+  bag_path: "bag.rosbag"
+
+  vla_left:
+    policy_ip: "172.16.6.101"
+    policy_port: "8888"
+    default_command: "pick up the blue box"
   publish_rate_hz: 100
