@@ -9,7 +9,7 @@ SINGLE_FR5:
       urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
       name: "fairino5_v6"
       states: "/synapse/joint_states/fr5"
-      target: "/synapse/tartget/fr5"
+      target: "/synapse/target/fr5"
       joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
       eef_frame: "wrist3_link"
       prim_path: "/World/fairino5_v6"

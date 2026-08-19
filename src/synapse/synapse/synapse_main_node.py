@@ -80,7 +80,6 @@ class SynapseMainNode(Node):
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
         self.bt_root = scenario_parser.parse(scenario_path)
         self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
-        self.terminal_ui.log(f"🌲🌲 Behaviour Tree loaded from {scenario_filename}")
 
         embodiment_parser = EmbodimentParser(embodiment_name)
         cameras = embodiment_parser.get_cameras()

@@ -11,9 +11,14 @@ class StdoutRedirector:
         self.tui = tui
 
     def write(self, msg):
-        clean_msg = msg
-        if clean_msg:
-            self.tui.log(clean_msg)
+        if not msg:
+            return
+        for line in msg.splitlines():
+            if line.strip():
+                self.tui.log(line)
+        # clean_msg = msg
+        # if clean_msg:
+        #     self.tui.log(clean_msg)
 
     def flush(self):
         pass

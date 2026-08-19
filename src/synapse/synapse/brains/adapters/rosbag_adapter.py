@@ -26,7 +26,7 @@ class RosbagAdapter(BaseBrainAdapter):
     def _init_bag_reader(self):
         try:
             self.reader = rosbag2_py.SequentialReader()
-            storage_options = rosbag2_py.StorageOptinos(uri=self.bag_path, storage_id='sqlite3')
+            storage_options = rosbag2_py.StorageOptions(uri=self.bag_path, storage_id='sqlite3')
             converter_options = rosbag2_py.ConverterOptions(
                 input_serialization_format='cdr',
                 output_serialization_format='cdr'
@@ -53,7 +53,7 @@ class RosbagAdapter(BaseBrainAdapter):
             topic, data, timestamp = self.reader.read_next()
             msg_type_str = self.type_map.get(topic)
 
-            if msg_type_str == 'sensoor_msgs/msg/JointState':
+            if msg_type_str == 'sensor_msgs/msg/JointState':
                 msg_type = get_message(msg_type_str)
                 msg = deserialize_message(data, msg_type)
 

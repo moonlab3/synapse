@@ -52,6 +52,9 @@ class ScenarioParser:
         # Build the py_trees behavior tree graph
         bt_root = self._build_node(config.get('behavior_tree', {}))
         
+        print(f"===== 🌳🌳  Scenario Parsed from [{file_path}] =====")
+        print(py_trees.display.unicode_tree(bt_root, show_only_visited=False))
+
         return bt_root
 
     def _build_node(self, node_config: dict) -> py_trees.behaviour.Behaviour:
