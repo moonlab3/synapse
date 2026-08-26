@@ -58,6 +58,7 @@ class SynapseMainNode(Node):
         all_params = self.get_parameters_by_prefix('')
         param_overrides = list(all_params.values())
 
+        self.terminal_ui.wait_debug("start initializing")
         self.brain_adapters = {}
         for entry in registry_list:
             node_name, adapter_type = entry.split(':')
@@ -68,6 +69,7 @@ class SynapseMainNode(Node):
                 parameter_overrides=param_overrides
             )
 
+        self.terminal_ui.wait_debug("after loading brains")
         self.brain_node_list = list(self.brain_adapters.keys())
         self.brain_node_num = len(self.brain_adapters)
         self.brain_node_map = "Brain Adapters "
@@ -77,9 +79,11 @@ class SynapseMainNode(Node):
         self.terminal_ui.log(f"⚙️ ros2 brains{self.brain_node_map} initialized")
 
         scenario_parser = ScenarioParser(synapse_node=self)
+        self.terminal_ui.wait_debug("Parsing start")
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
         self.bt_root = scenario_parser.parse(scenario_path)
-        self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
+        self.terminal_ui.wait_debug("Parsing done")
+        # self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
 
         embodiment_parser = EmbodimentParser(embodiment_name)
         cameras = embodiment_parser.get_cameras()
@@ -98,7 +102,8 @@ class SynapseMainNode(Node):
             joint_states = cfg.get('states', f'/synapse/joint_states/{name}')
             self.robot_subscribers[name] = self.create_subscription(
                 JointState, joint_states,
-                functools.partial(self.obs_callback, topic_name=name), 10)
+                functools.partial(self.obs_callback, topic_name=name), 10
+                )
 
             target = cfg.get('target', f'/synapse/target/{name}')
             self.target_publishers[name] = self.create_publisher(JointState, target, 10)
@@ -163,6 +168,9 @@ class SynapseMainNode(Node):
                 case 'v':
                     self.pub_synapse_command.publish(String(data="QUIT"))
                     raise KeyboardInterrupt
+                case 'c':
+                    self.bt_root
+
                 case 'x' if not self.is_ticking:
                     self.is_ticking = True
                     self.status = "Running"
@@ -200,7 +208,6 @@ class SynapseMainNode(Node):
         if self.inference_future is None and len(self.obs_buffer) > 0:
             # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
-            # self.inference_future = self.inference_executor.submit(self.brain_adapter.infer, historical_obs)
             self.inference_future = self.inference_executor.submit(
                 self.brain_adapters[self.running_brain].infer, 
                 historical_obs, 

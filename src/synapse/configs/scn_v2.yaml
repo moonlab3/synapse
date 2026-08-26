@@ -1,0 +1,71 @@
+# example_scenario.yaml
+behavior_tree:
+  type: "Selector"
+  name: "Root"
+  children:
+    - type: "Condition"
+      name: "Global_Safety_abort"
+      conditions:
+        success:
+          checks:
+            - type: "detect"
+              target: "collision_risk"
+              description: "Force-torque or vision detects imminent collision"
+    - type: "Sequence"
+      name: "Main_Flow"
+      children:
+        - type: "Selector"
+          name: "Pour_Water_With_Recovery"
+          children:
+            - type: "Action"
+              name: "Pour_Water_Task"
+              adapter: "vla_franka"
+              description: "Executes the pouring policy until the cup is full."
+              conditions:
+                success:
+                  logic: "AND"
+                  checks:
+                    - type: "policy_complete"
+                      description: "The VLA network outputs the <STOP> token."
+                    - type: "detect"
+                      target: "cup_water_level"
+                      threshold: 0.85
+                      description: "Perception confirms the cup is visually full."
+                failure:
+                  logic: "OR"
+                  checks:
+                    - type: "time"
+                      duration: 15.0
+                      description: "Task took over 15 seconds. AI is likely stuck."
+                    - type: "pose_bound"
+                      robot: "left_arm"
+                      axis: "z"
+                      operator: "<"
+                      value: 0.1
+                      description: "Arm dipped below safe Z-height. Imminent collision."
+            - type: "Action"
+              name: "Emergency_Recovery"
+              adapter: "manual_nav"
+              description: "Retracts the arm to a safe pose and halts pouring."
+              conditions:
+                success:
+                  logic: "AND"
+                  checks:
+                    - type: "pose_reached"
+                      robot: "left_arm"
+                      target_pose: "safe_retract"
+                      tolerance: 0.02
+                      description: "Arm has returned to the safe retract pose."
+        - type: "Action"
+          name: "Return_To_Home"
+          adapter: "manual_nav"
+          description: "Moves all arms back to home position."
+          conditions:
+            success:
+              logic: "AND"
+              checks:
+                - type: "pose_reached"
+                  robot: "ALL"
+                  target_pose: "home"
+                  tolerance: 0.02
+                  description: "All robots have returned to home pose."

@@ -16,9 +16,6 @@ class StdoutRedirector:
         for line in msg.splitlines():
             if line.strip():
                 self.tui.log(line)
-        # clean_msg = msg
-        # if clean_msg:
-        #     self.tui.log(clean_msg)
 
     def flush(self):
         pass
@@ -33,10 +30,8 @@ class BackgroundTUI:
         self._running = True
         self.debug_mode = debug_mode
         
-        # Lock to prevent ROS 2 main thread and UI background thread from colliding
         self._lock = threading.Lock()
         
-        # ⚡ CRITICAL FIX: Hijack standard output so print() doesn't destroy curses
         self.old_stdout = sys.stdout
         self.old_stderr = sys.stderr
         sys.stdout = StdoutRedirector(self)
@@ -59,7 +54,6 @@ class BackgroundTUI:
 
     def _cleanup(self):
         self._running = False
-        # Restore standard output before closing
         sys.stdout = self.old_stdout
         sys.stderr = self.old_stderr
         try:
@@ -79,7 +73,6 @@ class BackgroundTUI:
         stdscr.nodelay(True)
         stdscr.timeout(50)
 
-        # Fixed split line for controls (dynamic based on terminal size is safer, but 8 is reliable)
         split_line = 10
 
         while self._running:
@@ -98,7 +91,7 @@ class BackgroundTUI:
 
             # --- 1. Draw UI ---
             try:
-                top_bar = " Free(Z)e | E(X)ecute | Lea(V)e | (C)ustom Sentence ".center(max_x - 1)
+                top_bar = " Free(Z)e | E(X)ecute | S(C)enario Run | Lea(V)e | (B)ackup command | (Q)uick Reset".center(max_x - 1)
                 stdscr.addstr(0, 0, top_bar[:max_x - 1], curses.A_REVERSE)
                 
                 stdscr.addstr(1, 2, f"{node_map}"[:max_x - 3], curses.A_BOLD)
@@ -135,7 +128,7 @@ class BackgroundTUI:
                         char = chr(key)
                         # self.log(f"key:[{char}]")
                         
-                        if char == 'c':
+                        if char == 'b':
                             stdscr.nodelay(False)
                             curses.curs_set(1)
                             # ⚡ CRITICAL FIX: Removed the emoji. It breaks curses getstr offsets.

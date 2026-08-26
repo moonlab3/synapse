@@ -86,7 +86,7 @@ multi_brain_test:
   publish_rate_hz: 100
 
 dual_arm_dummy:
-  scenario_filename: "scn_pilot.yaml"
+  scenario_filename: "scn_v2.yaml"
   embodiment_name: "DUAL_PANDA"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -113,7 +113,6 @@ dual_armhand_manual:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   muscle_option: "ISAAC"
-  # muscle_option: "DUMMY"
 
   brain_registry:
     - "manual_adapter:MANUAL"
@@ -144,7 +143,6 @@ single_armhand:
 
   publish_rate_hz: 100
 
-
 rviz_test:
   scenario_filename: "scn_pilot.yaml"
   embodiment_name: "SINGLE_FR5"
@@ -163,4 +161,18 @@ rviz_test:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
     default_command: "pick up the blue box"
+  publish_rate_hz: 100
+
+bottle_opener:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "DUAL_XARM_V5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  # muscle_option: "ISAAC"
+  muscle_option: "DUMMY"
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
+    - "external_control:DUMMY"
+
   publish_rate_hz: 100

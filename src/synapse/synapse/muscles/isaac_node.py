@@ -10,7 +10,8 @@ if workspace_path not in sys.path:
 
 from synapse.utils.embodiment_parser import EmbodimentParser
 
-current_domain = os.environ.get("ROS_DOMAIN_ID", "44")
+# current_domain = os.environ.get("ROS_DOMAIN_ID", "44")
+current_domain = os.environ.get("ROS_DOMAIN_ID", "0")
 os.environ["ROS_DOMAIN_ID"] = current_domain
 
 # --- 1. THE SELF-RESTARTING SCRUBBER & REBUILDER ---
@@ -109,7 +110,7 @@ class IsaacNode(Node):
                 JointState, target_topic,
                 functools.partial(self.brain_output_callback, robot_name=name), 10
             )
-            self.joint_names[name] = cfg.get('joint_names', [])
+            # self.joint_names[name] = cfg.get('joint_names', [])
             _log_robot_names += f"{name}, "
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
@@ -161,17 +162,19 @@ class IsaacNode(Node):
             if not self.world.scene.object_exists(name):
                 articulation = Articulation(prim_paths_expr=prim_path, name=name)
                 self.world.scene.add(articulation)
+                self.get_logger().info(f"[{name}] is not in the scene, added manually")
             else:
                 articulation = self.world.scene.get_object(name)
+                self.get_logger().info(f"[{name}] is in the scene.")
 
             self.articulations[name] = articulation
-            self.get_logger().info(f"Articulation [{name}] initialized")
 
         self.world.reset()
         self.get_logger().info(f"Isaac Sim World reset")
 
         for name, articulation in self.articulations.items():
             articulation.initialize()
+            self.get_logger().info(f"Articulation [{name}] initialized - {articulation.num_dof}, {articulation.dof_names}")
 
             # init_pos = articulation.get_joint_positions()[0]
             init_pos = self._to_host_numpy(articulation.get_joint_positions()[0])
@@ -180,10 +183,10 @@ class IsaacNode(Node):
             if hasattr(init_pos, 'cpu'):
                 init_pos = init_pos.detach().cpu().numpy()
             self.target_joints[name] = np.array(init_pos, dtype=np.float32)
-            self.get_logger().info(f"Articulation [{name}] Initial Positions")
 
-            if not self.joint_names[name]:
-                self.joint_names[name] = articulation.dof_names
+            # if not self.joint_names[name]:
+            #     self.joint_names[name] = articulation.dof_names
+            self.joint_names[name] = articulation.dof_names
 
         # LOADING CAMERA LOADING CAMERA
         for name, cfg in self.camera_cfg.items():

@@ -49,6 +49,7 @@ SINGLE_PANDA_CAM:
       joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
       prim_path: "/World/franka_set/Franka/panda"
 
+
 DUAL_PANDA:
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
   robots:
@@ -170,21 +171,23 @@ DUAL_XARM_V5:
     left_arm:
       type: "manipulator"
       yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/xarm7_clean.urdf"
+      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
+      eef_frame: "xarm_left_link_eef"
       name: "xarm7_v5_sense_left"
       states: "/synapse/joint_states/left_arm"
       target: "/synapse/target/left_arm"
       joint_names: ["left_joint1", "left_joint2", "left_joint3", "left_joint4", "left_joint5", "left_joint6", "left_joint7"]
-      prim_path: "/Dual_Xarm7_v5_sense/xarm7_v5_sense_left"
+      prim_path: "/Dual_Xarm7_v5_sense"
     right_arm:
       type: "manipulator"
       yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/xarm7_clean.urdf"
+      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
+      eef_frame: "xarm_right_link_eef"
       name: "xarm7_v5_sense_right"
       states: "/synapse/joint_states/right_arm"
       target: "/synapse/target/right_arm"
       joint_names: ["right_joint1", "right_joint2", "right_joint3", "right_joint4", "right_joint5", "right_joint6", "right_joint7"]
-      prim_path: "/Dual_Xarm7_v5_sense/xarm7_v5_sense_right"
+      prim_path: "/Dual_Xarm7_v5_sense"
     
     allegro_left:
       type: "end-effector"
@@ -195,7 +198,7 @@ DUAL_XARM_V5:
                     "left_thumb_joint_0", "left_thumb_joint_1", "left_thumb_joint_2", "left_thumb_joint_3", "left_thumb_joint_tip",
                     "left_middle_joint_0", "left_middle_joint_1", "left_middle_joint_2", "left_middle_joint_3", "left_middle_joint_tip",
                     "left_ring_joint_0", "left_ring_joint_1", "left_ring_joint_2", "left_ring_joint_3", "left_ring_joint_tip"]
-      prim_path: "/Dual_Xarm7_v5_sense/xarm7_v5_sense_left/v5_sense_left_with_collider"
+      prim_path: "/Dual_Xarm7_v5_sense"
     allegro_right:
       type: "end-effector"
       name: "v5_sense_right_with_collider"
@@ -205,4 +208,4 @@ DUAL_XARM_V5:
                     "right_thumb_joint_0", "right_thumb_joint_1", "right_thumb_joint_2", "right_thumb_joint_3", "right_thumb_joint_tip",
                     "right_middle_joint_0", "right_middle_joint_1", "right_middle_joint_2", "right_middle_joint_3", "right_middle_joint_tip",
                     "right_ring_joint_0", "right_ring_joint_1", "right_ring_joint_2", "right_ring_joint_3", "right_ring_joint_tip"]
-      prim_path: "/Dual_Xarm7_v5_sense/xarm7_v5_sense_right/v5_sense_right_with_collider"
+      prim_path: "/Dual_Xarm7_v5_sense"

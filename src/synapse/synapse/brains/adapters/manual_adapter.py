@@ -77,9 +77,15 @@ class ManualAdapter(BaseBrainAdapter):
                 else:
                     urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
                 self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
+                self.terminal.wait_debug(f"[{name}] loaded")
 
                 self.eef_frame[name] = cfg.get('eef_frame')
+                # for link_name in self.robots[name].links.names:
+                #     self.terminal.wait_debug(f"[{link_name}]")
+
+                self.terminal.wait_debug(f"[{self.robots[name].links.names}]")
                 dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
+                self.terminal.wait_debug(f"[{self.robots[name]}]'s joints: {self.robots[name].joints.num_actuated_joints}")
                 dummy_q = jnp.zeros(self.robots[name].joints.num_actuated_joints)
                 _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q) 
             elif cfg.get('type') == 'end-effector':
@@ -91,6 +97,7 @@ class ManualAdapter(BaseBrainAdapter):
         print("Hand Selection:[i] Toggle Active Hand")
         print("Hand Fingers:  Bend [g, h, j, k, l] -> Thumb, Index, Middle, Ring, Little")
         print("               Unbend [G, H, J, K, L]")
+        self.terminal.wait_debug("manual adapter loading complete")
 
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
@@ -134,12 +141,17 @@ class ManualAdapter(BaseBrainAdapter):
                 self.current_eef_poses[name] = eef_poses[name].copy()
         return eef_poses
 
-    def _inverse_kinematics(self, eef_poses_dict: dict, original_joint_states: dict) -> dict:
+    def _inverse_kinematics(self, eef_poses_dict: dict, original_joint_states: dict, arms_to_solve=None) -> dict:
         target_joints = {}
         
         for name, cfg in self.robots_cfg.items():
             if cfg.get('type') == 'manipulator':
                 original_js = original_joint_states.get(name)
+
+                if arms_to_solve is not None and name not in arms_to_solve:
+                    target_joints[name] = original_js if original_js else JointState()
+                    continue
+
                 eef_pose = eef_poses_dict.get(name)
                 
                 if not original_js or not original_js.position or not eef_pose:
@@ -199,10 +211,13 @@ class ManualAdapter(BaseBrainAdapter):
     def _format_for_muscle(self, raw_action: dict) -> list:
         eef_poses = raw_action.get("eef_poses", {})
         original_joints = raw_action.get("original_joints", {})
-        
         target_joints_from_policy = raw_action.get("target_joints", {})
-        
-        manipulator_targets = self._inverse_kinematics(eef_poses, original_joints)
+        moved_arms = raw_action.get("moved_arms", set())
+
+        if moved_arms:
+            manipulator_targets = self._inverse_kinematics(eef_poses, original_joints)
+        else:
+            manipulator_targets = {}
         
         target_dict = {}
         for name, cfg in self.robots_cfg.items():
@@ -224,13 +239,13 @@ class ManualAdapter(BaseBrainAdapter):
         original_joints = formatted_obs.get("original_joints", {})
         target_joints_out ={}
 
+        moved_arms = set()
+
         if not hasattr(self, 'manipulator_names'):
             self.manipulator_names = [name for name, cfg in self.robots_cfg.items() if cfg.get('type') == 'manipulator']
-            # self.active_robot_idx = 0 if self.manipulator_names else -1
             self.active_robot_idx = len(self.manipulator_names) if self.manipulator_names else -1
 
             self.hand_names = [name for name, cfg in self.robots_cfg.items() if cfg.get('type') == 'end-effector']
-            # self.active_hand_idx = 0 if self.hand_names else -1
             self.active_hand_idx = len(self.hand_names) if self.hand_names else -1
 
         for h_name in self.hand_names:
@@ -284,6 +299,7 @@ class ManualAdapter(BaseBrainAdapter):
 
                         eef_poses[active_arm_name] = pose
                         self.current_eef_poses[active_arm_name] = pose.copy()
+                        moved_arms.add(active_arm_name)
 
                 if self.hand_names and self.active_hand_idx >= 0:
                     active_hands = self.hand_names if self.active_hand_idx == len(self.hand_names) else [self.hand_names[self.active_hand_idx]]
@@ -325,5 +341,6 @@ class ManualAdapter(BaseBrainAdapter):
 
         formatted_obs["eef_poses"] = eef_poses
         formatted_obs["target_joints"] = target_joints_out
+        formatted_obs["moved_arms"] = moved_arms
 
         return formatted_obs

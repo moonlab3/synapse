@@ -16,7 +16,7 @@ class RealRobotNode(Node):
 
     def trajectory_callback(self, msg: JointTrajectory):
         # Pass the trajectory to the physical robot controller
-        self.get_logger().debug("Executing new trajectory chunk...")
+        self.get_logger().wait_debug("Executing new trajectory chunk...")
         pass
 
     def hardware_estop(self):
