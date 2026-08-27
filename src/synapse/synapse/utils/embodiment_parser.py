@@ -42,9 +42,39 @@ class EmbodimentParser:
     def get_cameras(self) -> dict:
         return self.embodiment_config.get('cameras', {})
 
+    def _is_articulation_group(self, entry: dict) -> bool:
+        return isinstance(entry, dict) and 'components' in entry
+
+    def get_articulations(self) -> dict:
+        raw_robots = self.embodiment_config.get('robots', {})
+        return {
+            name: cfg for name, cfg in raw_robots.items()
+            if self._is_articulation_group(cfg)
+        }
+
     def get_robots(self) -> dict:
-        return self.embodiment_config.get('robots', {})
+        raw_robots = self.embodiment_config.get('robots', {})
+        flattened = {}
+
+        for name, cfg in raw_robots.items():
+            if self._is_articulation_group(cfg):
+                group_name = name
+                group_level_keys = {k: v for k, v in cfg.items() if k != 'components'}
+                for comp_name, comp_cfg in cfg['components'].items():
+                    merged = dict(comp_cfg)
+                    merged['_group'] = group_name
+                    for k, v in group_level_keys.items():
+                        merged.setdefault(k, v)
+                    flattened[comp_name] = merged
+            else:
+                flattened[name] = cfg
+
+        return flattened
+        
+    # def get_robots(self) -> dict:
+    #     return self.embodiment_config.get('robots', {})
 
     def get_total_dofs(self) -> int:
         robots = self.get_robots()
-        return sum(robot.get('dof', 0) for robot in robots.values())
+        return sum(len(robot.get('joint_names', [])) for robot in robots.values())
+        # return sum(robot.get('dof', 0) for robot in robots.values())

@@ -85,13 +85,44 @@ class IsaacNode(Node):
         parser = EmbodimentParser(embodiment_name)
         self.usd_path = parser.get_config().get('usd_path')
         self.camera_cfg = parser.get_cameras()
-        self.robots_cfg = parser.get_robots()
-        
+
         self.camera_publishers = {}
         for name, cfg in self.camera_cfg.items():
             topic = cfg.get('topic', f'/synapse/camera/{name}/image_raw')
             self.camera_publishers[name] = self.create_publisher(Image, topic, 10)
         self.cameras = {}
+
+        # ---- Build unified per-ARTICULATION groups. One group = one physical
+        # Articulation = one state topic = one target topic (point 2: no
+        # component-level topics anymore, no runtime collision detection needed
+        # since joint names within a single articulation are inherently unique).
+        articulation_groups = parser.get_articulations()  # new nested schema only
+        flat_robots = parser.get_robots()                  # flattened, all components
+
+        self.groups = {}
+        grouped_component_names = set()
+
+        for group_name, group_cfg in articulation_groups.items():
+            self.groups[group_name] = {
+                'prim_path': group_cfg.get('prim_path'),
+                'states': group_cfg.get('states', f'/synapse/joint_states/{group_name}'),
+                'target': group_cfg.get('target', f'/synapse/target/{group_name}'),
+                'components': group_cfg.get('components', {}),
+            }
+            grouped_component_names.update(self.groups[group_name]['components'].keys())
+
+        # Old flat-schema robots (no 'components' key) — each becomes its own
+        # single-component group, identical to today's behavior. Lets embodiments
+        # migrate to the nested schema one at a time.
+        for name, cfg in flat_robots.items():
+            if name in grouped_component_names:
+                continue
+            self.groups[name] = {
+                'prim_path': cfg.get('prim_path'),
+                'states': cfg.get('states', f'/synapse/joint_states/{name}'),
+                'target': cfg.get('target', f'/synapse/target/{name}'),
+                'components': {name: cfg},
+            }
 
         self.pub_joint_states = {}
         self.sub_targets = {}
@@ -102,19 +133,15 @@ class IsaacNode(Node):
         self.num_dofs = {}
         _log_robot_names = ""
 
-        for name, cfg in self.robots_cfg.items():
-            state_topic = cfg.get('states', f'/synapse/joint_states/{name}')
-            target_topic = cfg.get('target', f'/synapse/target/{name}')
-            self.pub_joint_states[name] = self.create_publisher(JointState, state_topic, 10)
-            self.sub_targets[name] = self.create_subscription(
-                JointState, target_topic,
-                functools.partial(self.brain_output_callback, robot_name=name), 10
+        for group_name, group in self.groups.items():
+            self.pub_joint_states[group_name] = self.create_publisher(JointState, group['states'], 10)
+            self.sub_targets[group_name] = self.create_subscription(
+                JointState, group['target'],
+                functools.partial(self.target_callback, group_name=group_name), 10
             )
-            # self.joint_names[name] = cfg.get('joint_names', [])
-            _log_robot_names += f"{name}, "
+            _log_robot_names += f"{group_name}[{', '.join(group['components'].keys())}], "
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
-
         self._setup_isaac_sim()
 
         self.reset_process = 100
@@ -156,37 +183,42 @@ class IsaacNode(Node):
         self.world._physics_context = PhysicsContext(prim_path="/World/PhysicsScene")
 
         self.get_logger().info("Articulation Initializing =================")
-        for name, cfg in self.robots_cfg.items():
-            prim_path = cfg.get('prim_path')
+        for group_name, group in self.groups.items():
+            prim_path = group['prim_path']
 
-            if not self.world.scene.object_exists(name):
-                articulation = Articulation(prim_paths_expr=prim_path, name=name)
+            if not self.world.scene.object_exists(group_name):
+                articulation = Articulation(prim_paths_expr=prim_path, name=group_name)
                 self.world.scene.add(articulation)
-                self.get_logger().info(f"[{name}] is not in the scene, added manually")
+                self.get_logger().info(f"[{group_name}] is not in the scene, added manually")
             else:
-                articulation = self.world.scene.get_object(name)
-                self.get_logger().info(f"[{name}] is in the scene.")
+                articulation = self.world.scene.get_object(group_name)
+                self.get_logger().info(f"[{group_name}] is in the scene.")
 
-            self.articulations[name] = articulation
+            self.articulations[group_name] = articulation
 
         self.world.reset()
         self.get_logger().info(f"Isaac Sim World reset")
 
-        for name, articulation in self.articulations.items():
+        for group_name, articulation in self.articulations.items():
             articulation.initialize()
-            self.get_logger().info(f"Articulation [{name}] initialized - {articulation.num_dof}, {articulation.dof_names}")
+            self.get_logger().info(f"Articulation [{group_name}] initialized - {articulation.num_dof}, {articulation.dof_names}")
 
-            # init_pos = articulation.get_joint_positions()[0]
             init_pos = self._to_host_numpy(articulation.get_joint_positions()[0])
 
-            self.initial_positions[name] = init_pos
+            self.initial_positions[group_name] = init_pos
             if hasattr(init_pos, 'cpu'):
                 init_pos = init_pos.detach().cpu().numpy()
-            self.target_joints[name] = np.array(init_pos, dtype=np.float32)
+            self.target_joints[group_name] = np.array(init_pos, dtype=np.float32)
 
-            # if not self.joint_names[name]:
-            #     self.joint_names[name] = articulation.dof_names
-            self.joint_names[name] = articulation.dof_names
+            # Full DOF set for this physical articulation — may span several
+            # logical components (e.g. left_arm + right_arm + left_hand + right_hand
+            # for DUAL_XARM_V5's single dual_xarm_unit prim). This is the ONLY
+            # joint-name list this node needs; per-component slicing is left to
+            # whichever adapter/consumer cares about that boundary, not this node.
+            self.joint_names[group_name] = articulation.dof_names
+
+            component_names = list(self.groups[group_name]['components'].keys())
+            self.get_logger().info(f"  covers components: {component_names}")
 
         # LOADING CAMERA LOADING CAMERA
         for name, cfg in self.camera_cfg.items():
@@ -216,26 +248,26 @@ class IsaacNode(Node):
 
         # Update once to populate internal physics buffers
         simulation_app.update()
-
-    def brain_output_callback(self, msg: JointState, robot_name: str):
-        """Receives target joints from synapse_bt_node"""
+    
+    def target_callback(self, msg: JointState, group_name: str):
+        """Receives target joints for one physical articulation. The message
+        may carry commands for several logical components at once (e.g. both
+        arms of a dual-arm unit) — that's fine, they all resolve against this
+        group's own dof_names, which are guaranteed unique since they come
+        from one physical Articulation."""
         if msg.position and self.reset_process >= 100:
             if msg.name:
-                # 1. Safely route values using zip to inherently protect against length mismatches
-                # self.get_logger().info(f"callback:[{msg.name}]")
                 for joint_name, joint_pos in zip(msg.name, msg.position):
-                    if joint_name in self.joint_names[robot_name]:
-                        sim_idx = self.joint_names[robot_name].index(joint_name)
-                        self.target_joints[robot_name][sim_idx] = joint_pos
+                    if joint_name in self.joint_names[group_name]:
+                        sim_idx = self.joint_names[group_name].index(joint_name)
+                        self.target_joints[group_name][sim_idx] = joint_pos
             else:
-                # 2. Fallback: Copy directly up to the physical DOF limit
                 self.get_logger().info("no msg name")
-                copy_len = min(len(msg.position), len(self.target_joints[robot_name]))
-                self.target_joints[robot_name][:copy_len] = msg.position[:copy_len]
+                copy_len = min(len(msg.position), len(self.target_joints[group_name]))
+                self.target_joints[group_name][:copy_len] = msg.position[:copy_len]
 
-                # Structural patch for parallel grippers
-                if len(msg.position) == 8 and len(self.target_joints[robot_name]) == 9:
-                    self.target_joints[robot_name][-1] = msg.position[-1]
+                if len(msg.position) == 8 and len(self.target_joints[group_name]) == 9:
+                    self.target_joints[group_name][-1] = msg.position[-1]
 
     def spin_and_step(self):
         """Manual loop to step both ROS2 and Isaac Sim concurrently"""
@@ -247,7 +279,6 @@ class IsaacNode(Node):
                     self.reset_process += 1
 
                 for name, articulation in self.articulations.items():
-                    # articulation.set_joint_position_targets(self.target_joints[name].reshape(1, -1))
                     target_tensor = torch.tensor(
                         self.target_joints[name],
                         dtype=torch.float32,
@@ -257,17 +288,15 @@ class IsaacNode(Node):
 
                 self.world.step(render=True)
                 simulation_app.update()
-                # self.get_logger().info("isaac spin")
 
-                for name, articulation in self.articulations.items():
-                    # current_positions = articulation.get_joint_positions()[0]
+                for group_name, articulation in self.articulations.items():
                     current_positions = self._to_host_numpy(articulation.get_joint_positions()[0])
 
                     msg = JointState()
                     msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.name = self.joint_names[name]
+                    msg.name = self.joint_names[group_name]
                     msg.position = current_positions.tolist()
-                    self.pub_joint_states[name].publish(msg)
+                    self.pub_joint_states[group_name].publish(msg)
 
                 for name, cam in self.cameras.items():
                     frame_rgba = cam.get_rgba()

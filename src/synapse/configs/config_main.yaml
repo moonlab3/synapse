@@ -8,42 +8,6 @@ default:
     - "manual:MANUAL"
   publish_rate_hz: 100
 
-
-gr00t_franka_test:
-  scenario_filename: "scn_pilot.yaml"
-  embodiment_name: "SINGLE_PANDA_CAM"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-  muscle_option: "DUMMY"
-  brain_registry:
-    - "vla_franka:GR00T"
-  # gr00t
-  vla_franka:
-    policy_ip: "172.16.6.101"
-    policy_port: "8888"
-    default_command: "pick up the blue box"
-  publish_rate_hz: 100
-
-  robot_description: True
-  description_name: "panda_description"
-  eef_frame: "panda_hand"
-
-gr00t_franka_sim:
-  scenario_filename: "scn_pilot.yaml"
-  embodiment_name: "SINGLE_PANDA_CAM"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-  muscle_option: "ISAAC"
-
-  brain_registry:
-    - "vla_franka:GR00T"
-  vla_franka:
-    policy_ip: "172.16.6.101"
-    policy_port: "8888"
-    default_command: "pick up the blue box"
-  # isaac sim
-  publish_rate_hz: 100
-
 fairino_manual_sim:
   # basic
   scenario_filename: "scn_pilot.yaml"
@@ -54,6 +18,48 @@ fairino_manual_sim:
 
   brain_registry:
     - "manual_adapter:MANUAL"
+  # isaac sim
+  publish_rate_hz: 100
+
+bottle_opener:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "DUAL_XARM_V5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  muscle_option: "ISAAC"
+  # muscle_option: "DUMMY"
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
+    - "external_control:DUMMY"
+
+  publish_rate_hz: 100
+
+dual_arm:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "DUAL_PANDA"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+
+  muscle_option: "ISAAC"
+  brain_registry:
+    - "manual_adapter:MANUAL"
+  publish_rate_hz: 100
+
+gr00t_franka_sim:
+  scenario_filename: "scn_pilot.yaml"
+  embodiment_name: "SINGLE_PANDA_CAM"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  muscle_option: "ISAAC"
+
+  brain_registry:
+    - "vla_franka:GR00T"
+    - "manual_adapter:MANUAL"
+  vla_franka:
+    policy_ip: "172.16.6.101"
+    policy_port: "8888"
+    default_command: "pick up the blue box"
   # isaac sim
   publish_rate_hz: 100
 
@@ -96,16 +102,6 @@ dual_arm_dummy:
     - "manual_adapter:MANUAL"
   publish_rate_hz: 100
 
-dual_arm:
-  scenario_filename: "scn_pilot.yaml"
-  embodiment_name: "DUAL_PANDA"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-
-  muscle_option: "ISAAC"
-  brain_registry:
-    - "manual_adapter:MANUAL"
-  publish_rate_hz: 100
 
 dual_armhand_manual:
   scenario_filename: "scn_pilot.yaml"
@@ -131,18 +127,6 @@ fr5_real:
 
   publish_rate_hz: 100
   
-single_armhand:
-  scenario_filename: "scn_pilot.yaml"
-  embodiment_name: "SINGLE_PANDAV4"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-  muscle_option: "ISAAC"
-
-  brain_registry:
-    - "manual_adapter:MANUAL"
-
-  publish_rate_hz: 100
-
 rviz_test:
   scenario_filename: "scn_pilot.yaml"
   embodiment_name: "SINGLE_FR5"
@@ -161,18 +145,4 @@ rviz_test:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
     default_command: "pick up the blue box"
-  publish_rate_hz: 100
-
-bottle_opener:
-  scenario_filename: "scn_pilot.yaml"
-  embodiment_name: "DUAL_XARM_V5"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-  # muscle_option: "ISAAC"
-  muscle_option: "DUMMY"
-
-  brain_registry:
-    - "manual_adapter:MANUAL"
-    - "external_control:DUMMY"
-
   publish_rate_hz: 100

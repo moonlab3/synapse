@@ -4,15 +4,83 @@ SINGLE_FR5:
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fr5.usd"
   robots:
     fr5:
-      type: "manipulator"
-      yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
-      name: "fairino5_v6"
+      prim_path: "/World/fairino5_v6"
       states: "/synapse/joint_states/fr5"
       target: "/synapse/target/fr5"
-      joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
-      eef_frame: "wrist3_link"
-      prim_path: "/World/fairino5_v6"
+      yourdfpy_description: false
+      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
+      components:
+        arm:
+          type: "manipulator"
+          name: "fairino5_v6"
+          joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
+          eef_frame: "wrist3_link"
+
+DUAL_XARM_V5:
+  table_height: 0.85
+  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_xarm7_v5_sense.usd"
+  robots:
+    dual_xarm_unit:                     # one physical articulation
+      prim_path: "/Dual_Xarm7_v5_sense"
+      target: "/joint_states"           # ONE topic for this whole articulation
+      states: "/synapse/target/dual_xarm_unit"
+      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
+      yourdfpy_description: false
+      components:
+        left_arm:
+          type: "manipulator"
+          eef_frame: "xarm_left_link_eef"
+          name: "xarm7_v5_sense_left"
+          joint_names: ["left_joint1", "left_joint2", "left_joint3", "left_joint4", "left_joint5", "left_joint6", "left_joint7"]
+        right_arm:
+          type: "manipulator"
+          eef_frame: "xarm_right_link_eef"
+          name: "xarm7_v5_sense_right"
+          joint_names: ["right_joint1", "right_joint2", "right_joint3", "right_joint4", "right_joint5", "right_joint6", "right_joint7"]
+        left_hand:
+          type: "end-effector"
+          name: "v5_sense_left_with_collider"
+          joint_names: ["left_index_joint_0", "left_index_joint_1", "left_index_joint_2", "left_index_joint_3", "left_index_joint_tip",
+                        "left_thumb_joint_0", "left_thumb_joint_1", "left_thumb_joint_2", "left_thumb_joint_3", "left_thumb_joint_tip",
+                        "left_middle_joint_0", "left_middle_joint_1", "left_middle_joint_2", "left_middle_joint_3", "left_middle_joint_tip",
+                        "left_ring_joint_0", "left_ring_joint_1", "left_ring_joint_2", "left_ring_joint_3", "left_ring_joint_tip"]
+        right_hand:
+          type: "end-effector"
+          name: "v5_sense_right_with_collider"
+          joint_names: ["right_index_joint_0", "right_index_joint_1", "right_index_joint_2", "right_index_joint_3", "right_index_joint_tip",
+                        "right_thumb_joint_0", "right_thumb_joint_1", "right_thumb_joint_2", "right_thumb_joint_3", "right_thumb_joint_tip",
+                        "right_middle_joint_0", "right_middle_joint_1", "right_middle_joint_2", "right_middle_joint_3", "right_middle_joint_tip",
+                        "right_ring_joint_0", "right_ring_joint_1", "right_ring_joint_2", "right_ring_joint_3", "right_ring_joint_tip"]
+
+DUAL_PANDA:
+  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
+  robots:
+    panda_left:
+      description_name: "panda_description"
+      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
+      yourdfpy_description: true
+      prim_path: "/World/franka_left"
+      states: "/synapse/joint_states/panda_left"
+      target: "/synapse/target/panda_left"
+      components:
+        left_arm:
+          type: "manipulator"
+          eef_frame: "panda_hand"
+          name: "franka_left"
+          joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
+    panda_right:
+      description_name: "panda_description"
+      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
+      yourdfpy_description: true
+      prim_path: "/World/franka_right"
+      states: "/synapse/joint_states/panda_right"
+      target: "/synapse/target/panda_right"
+      components:
+        right_arm:
+          name: "franka_right"
+          joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
+          type: "manipulator"
+          eef_frame: "panda_hand"
 
 SINGLE_PANDA_CAM:
   table_height: 0.85
@@ -39,173 +107,60 @@ SINGLE_PANDA_CAM:
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
   robots:
     panda_arm:
-      type: "manipulator"
-      eef_frame: "panda_hand"
       yourdfpy_description: true
       description_name: "panda_description"
-      name: "panda"
+      prim_path: "/World/franka_set/Franka/panda"
       states: "/synapse/joint_states/panda"
       target: "/synapse/target/panda"
-      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
-      prim_path: "/World/franka_set/Franka/panda"
+      components:
+        arm:
+          name: "panda"
+          type: "manipulator"
+          eef_frame: "panda_hand"
+          joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
 
 
-DUAL_PANDA:
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
-  robots:
-    panda_left:
-      type: "manipulator"
-      eef_frame: "panda_hand"
-      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
-      yourdfpy_description: true
-      description_name: "panda_description"
-      name: "franka_left"
-      states: "/synapse/joint_states/panda_left"
-      target: "/synapse/target/panda_left"
-      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
-      prim_path: "/World/franka_left"
-    panda_right:
-      type: "manipulator"
-      eef_frame: "panda_hand"
-      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
-      yourdfpy_description: true
-      description_name: "panda_description"
-      name: "franka_right"
-      states: "/synapse/joint_states/panda_right"
-      target: "/synapse/target/panda_right"
-      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
-      prim_path: "/World/franka_right"
 
-SINGLE_PANDAV4:
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/single_pandav4.usd"
-  robots:
-    panda_right:
-      type: "manipulator"
-      eef_frame: "panda_link8"
-      yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf"
-      name: "AllegroFrankaV5_right"
-      states: "/synapse/joint_states/panda_right"
-      target: "/synapse/target/panda_right"
-      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_joint8"]
-      prim_path: "/World/AllegroFrankaV5_right"
-    allegro_right:
-      type: "end-effector"
-      name: "allegro_hand_right"
-      states: "/synapse/joint_states/hand_right"
-      target: "/synapse/target/hand_right"
-      joint_names: ["joint_0_0", "joint_1_0", "joint_2_0", "joint_3_0", "joint_3_0_tip",
-                    "joint_4_0", "joint_5_0", "joint_6_0", "joint_7_0", "joint_7_0_tip",
-                    "joint_8_0", "joint_9_0", "joint_10_0", "joint_11_0", "joint_11_0_tip",
-                    "joint_12_0", "joint_13_0", "joint_14_0", "joint_15_0", "joint_15_0_tip"]
-      prim_path: "/World/AllegroFrankaV5_right"
-  cameras:
-    camera_front:
-      topic: "/synapse/camera/front/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
-      prim_path: "/World/Camera_front"
-      focal_length: 1.5
-      # orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
-      # translation: [-0.1, 0.0, -0.05]
-      width: 256
-      height: 256
-      frequency: 20
-    camera_back:
-      topic: "/synapse/camera/back/image_raw"
-      prim_path: "/World/Camera_back"
-      focal_length: 1.5
-      width: 256
-      height: 256
-      frequency: 20
-      clipping_near_distance: 0.01
-      clipping_far_distance: 10.0
-
-
-DUAL_PANDA_V5:
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/AllegroFrankaV5_dual_tabletop.usd"
-  robots:
-    panda_left:
-      type: "manipulator"
-      eef_frame: "panda_link8"
-      yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf"
-      name: "AllegroFrankaV5_left"
-      states: "/synapse/joint_states/panda_left"
-      target: "/synapse/target/panda_left"
-      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_joint8"]
-      prim_path: "/World/AllegroFrankaV5_left"
-    panda_right:
-      type: "manipulator"
-      eef_frame: "panda_link8"
-      yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf"
-      name: "AllegroFrankaV5_right"
-      states: "/synapse/joint_states/panda_right"
-      target: "/synapse/target/panda_right"
-      joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_joint8"]
-      prim_path: "/World/AllegroFrankaV5_right"
-    # allegro_left:
-    #   type: "end-effector"
-    #   name: "Hand_left_flattened"
-    #   states: "/synapse/joint_states/hand_left"
-    #   target: "/synapse/target/hand_left"
-    #   joint_names: ["joint_0_0", "joint_1_0", "joint_2_0", "joint_3_0", "joint_3_0_tip",
-    #                 "joint_4_0", "joint_5_0", "joint_6_0", "joint_7_0", "joint_7_0_tip",
-    #                 "joint_8_0", "joint_9_0", "joint_10_0", "joint_11_0", "joint_11_0_tip",
-    #                 "joint_12_0", "joint_13_0", "joint_14_0", "joint_15_0", "joint_15_0_tip"]
-    #   prim_path: "/World/AllegroFrankaV5_left/Hand_left_flattened"
-    allegro_right:
-      type: "end-effector"
-      name: "allegro_hand_right"
-      states: "/synapse/joint_states/hand_right"
-      target: "/synapse/target/hand_right"
-      joint_names: ["joint_0_0", "joint_1_0", "joint_2_0", "joint_3_0", "joint_3_0_tip",
-                    "joint_4_0", "joint_5_0", "joint_6_0", "joint_7_0", "joint_7_0_tip",
-                    "joint_8_0", "joint_9_0", "joint_10_0", "joint_11_0", "joint_11_0_tip",
-                    "joint_12_0", "joint_13_0", "joint_14_0", "joint_15_0", "joint_15_0_tip"]
-      prim_path: "/World/AllegroFrankaV5_right"
-
-DUAL_XARM_V5:
-  table_height: 0.85
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_xarm7_v5_sense.usd"
-  robots:
-    left_arm:
-      type: "manipulator"
-      yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
-      eef_frame: "xarm_left_link_eef"
-      name: "xarm7_v5_sense_left"
-      states: "/synapse/joint_states/left_arm"
-      target: "/synapse/target/left_arm"
-      joint_names: ["left_joint1", "left_joint2", "left_joint3", "left_joint4", "left_joint5", "left_joint6", "left_joint7"]
-      prim_path: "/Dual_Xarm7_v5_sense"
-    right_arm:
-      type: "manipulator"
-      yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
-      eef_frame: "xarm_right_link_eef"
-      name: "xarm7_v5_sense_right"
-      states: "/synapse/joint_states/right_arm"
-      target: "/synapse/target/right_arm"
-      joint_names: ["right_joint1", "right_joint2", "right_joint3", "right_joint4", "right_joint5", "right_joint6", "right_joint7"]
-      prim_path: "/Dual_Xarm7_v5_sense"
-    
-    allegro_left:
-      type: "end-effector"
-      name: "v5_sense_left_with_collider"
-      states: "/synapse/joint_states/hand_left"
-      target: "/synapse/target/hand_left"
-      joint_names: ["left_index_joint_0", "left_index_joint_1", "left_index_joint_2", "left_index_joint_3", "left_index_joint_tip",
-                    "left_thumb_joint_0", "left_thumb_joint_1", "left_thumb_joint_2", "left_thumb_joint_3", "left_thumb_joint_tip",
-                    "left_middle_joint_0", "left_middle_joint_1", "left_middle_joint_2", "left_middle_joint_3", "left_middle_joint_tip",
-                    "left_ring_joint_0", "left_ring_joint_1", "left_ring_joint_2", "left_ring_joint_3", "left_ring_joint_tip"]
-      prim_path: "/Dual_Xarm7_v5_sense"
-    allegro_right:
-      type: "end-effector"
-      name: "v5_sense_right_with_collider"
-      states: "/synapse/joint_states/hand_right"
-      target: "/synapse/target/hand_right"
-      joint_names: ["right_index_joint_0", "right_index_joint_1", "right_index_joint_2", "right_index_joint_3", "right_index_joint_tip",
-                    "right_thumb_joint_0", "right_thumb_joint_1", "right_thumb_joint_2", "right_thumb_joint_3", "right_thumb_joint_tip",
-                    "right_middle_joint_0", "right_middle_joint_1", "right_middle_joint_2", "right_middle_joint_3", "right_middle_joint_tip",
-                    "right_ring_joint_0", "right_ring_joint_1", "right_ring_joint_2", "right_ring_joint_3", "right_ring_joint_tip"]
-      prim_path: "/Dual_Xarm7_v5_sense"
+# DUAL_PANDA_V5:
+#   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/AllegroFrankaV5_dual_tabletop.usd"
+#   robots:
+#     panda_left:
+#       type: "manipulator"
+#       eef_frame: "panda_link8"
+#       yourdfpy_description: false
+#       urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf"
+#       name: "AllegroFrankaV5_left"
+#       states: "/synapse/joint_states/panda_left"
+#       target: "/synapse/target/panda_left"
+#       joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_joint8"]
+#       prim_path: "/World/AllegroFrankaV5_left"
+#     panda_right:
+#       type: "manipulator"
+#       eef_frame: "panda_link8"
+#       yourdfpy_description: false
+#       urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf"
+#       name: "AllegroFrankaV5_right"
+#       states: "/synapse/joint_states/panda_right"
+#       target: "/synapse/target/panda_right"
+#       joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_joint8"]
+#       prim_path: "/World/AllegroFrankaV5_right"
+#     allegro_left:
+#       type: "end-effector"
+#       name: "Hand_left_flattened"
+#       states: "/synapse/joint_states/hand_left"
+#       target: "/synapse/target/hand_left"
+#       joint_names: ["joint_0_0", "joint_1_0", "joint_2_0", "joint_3_0", "joint_3_0_tip",
+#                     "joint_4_0", "joint_5_0", "joint_6_0", "joint_7_0", "joint_7_0_tip",
+#                     "joint_8_0", "joint_9_0", "joint_10_0", "joint_11_0", "joint_11_0_tip",
+#                     "joint_12_0", "joint_13_0", "joint_14_0", "joint_15_0", "joint_15_0_tip"]
+#       prim_path: "/World/AllegroFrankaV5_left/Hand_left_flattened"
+#     allegro_right:
+#       type: "end-effector"
+#       name: "allegro_hand_right"
+#       states: "/synapse/joint_states/hand_right"
+#       target: "/synapse/target/hand_right"
+#       joint_names: ["joint_0_0", "joint_1_0", "joint_2_0", "joint_3_0", "joint_3_0_tip",
+#                     "joint_4_0", "joint_5_0", "joint_6_0", "joint_7_0", "joint_7_0_tip",
+#                     "joint_8_0", "joint_9_0", "joint_10_0", "joint_11_0", "joint_11_0_tip",
+#                     "joint_12_0", "joint_13_0", "joint_14_0", "joint_15_0", "joint_15_0_tip"]
+#       prim_path: "/World/AllegroFrankaV5_right"

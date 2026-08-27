@@ -11,8 +11,9 @@ from synapse.brains.brain_selector import BrainSelector
 from synapse.utils.scenario_parser import ScenarioParser
 from synapse.utils.embodiment_parser import EmbodimentParser
 import functools
-import py_trees
+# import py_trees
 import os
+from collections import deque
 from ament_index_python.packages import get_package_share_directory
 
 class ActionChunkBuffer:
@@ -96,17 +97,44 @@ class SynapseMainNode(Node):
                 Image, topic, 
                 functools.partial(self.image_callback, topic_name=name), 10)
 
-        self.target_publishers = {}
-        self.robot_subscribers = {}
-        for name, cfg in robots.items():
-            joint_states = cfg.get('states', f'/synapse/joint_states/{name}')
-            self.robot_subscribers[name] = self.create_subscription(
-                JointState, joint_states,
-                functools.partial(self.obs_callback, topic_name=name), 10
-                )
+        # ---- Build unified per-ARTICULATION groups, same pattern as isaac_node.py.
+        # One group = one physical articulation = one states topic = one target
+        # topic. Joint names are unique within a group by construction (either one
+        # physical articulation in the new nested schema, or a single old-schema
+        # flat robot), so no runtime collision detection or namespacing is needed.
+        articulation_groups = embodiment_parser.get_articulations()  # new nested schema
+        self.robots_cfg = robots                                      # flattened, all components
 
-            target = cfg.get('target', f'/synapse/target/{name}')
-            self.target_publishers[name] = self.create_publisher(JointState, target, 10)
+        self.groups = {}
+        grouped_component_names = set()
+
+        for group_name, group_cfg in articulation_groups.items():
+            self.groups[group_name] = {
+                'states': group_cfg.get('states', f'/synapse/joint_states/{group_name}'),
+                'target': group_cfg.get('target', f'/synapse/target/{group_name}'),
+                'components': group_cfg.get('components', {}),
+            }
+            grouped_component_names.update(self.groups[group_name]['components'].keys())
+
+        # Old flat-schema robots (no 'components' key) — each is its own
+        # single-component group, identical to today's behavior.
+        for name, cfg in self.robots_cfg.items():
+            if name in grouped_component_names:
+                continue
+            self.groups[name] = {
+                'states': cfg.get('states', f'/synapse/joint_states/{name}'),
+                'target': cfg.get('target', f'/synapse/target/{name}'),
+                'components': {name: cfg},
+            }
+
+        self.robot_subscribers = {}
+        self.target_publishers = {}
+        for group_name, group in self.groups.items():
+            self.robot_subscribers[group_name] = self.create_subscription(
+                JointState, group['states'],
+                functools.partial(self.obs_callback, group_name=group_name), 10
+                )
+            self.target_publishers[group_name] = self.create_publisher(JointState, group['target'], 10)
 
         self.terminal_ui.log(f"⚙️ ros2 topics initialized")
         self.latest_images = {}
@@ -133,20 +161,55 @@ class SynapseMainNode(Node):
         self.running_default = True
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / tick_freq, self.tick)
-
         
     def image_callback(self, msg: Image, topic_name: str):
         frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
         self.latest_images[topic_name] = frame
 
-    def obs_callback(self, msg: JointState, topic_name: str):
-        self.latest_joints[topic_name] = msg
-        self.updated_joints.add(topic_name)
+    def obs_callback(self, msg: JointState, group_name: str):
+        """Receives joint states for one physical articulation and splits the
+        message back into per-component JointState objects, so downstream code
+        (adapters, scenario_parser checks) keeps seeing one component's own
+        JointState exactly as before the merge. Component names within a group
+        are guaranteed unique (one physical articulation), so a direct
+        joint_names lookup is sufficient — no namespace parsing needed."""
+        components = self.groups[group_name]['components']
+
+        if len(components) == 1:
+            # Unshared group — identical to the pre-merge behavior, no decode needed.
+            component_name = next(iter(components))
+            self.latest_joints[component_name] = msg
+            self.updated_joints.add(component_name)
+        else:
+            per_component_names = {c: [] for c in components}
+            per_component_positions = {c: [] for c in components}
+
+            for joint_name, pos in zip(msg.name, msg.position):
+                component_name = next(
+                    (c for c, cfg in components.items()
+                    if joint_name in cfg.get('joint_names', [])),
+                    None
+                )
+                if component_name is None:
+                    continue
+                per_component_names[component_name].append(joint_name)
+                per_component_positions[component_name].append(pos)
+
+            for component_name in components:
+                if not per_component_names[component_name]:
+                    continue  # this message carried no data for this component
+                split_msg = JointState()
+                split_msg.header = msg.header
+                split_msg.name = per_component_names[component_name]
+                split_msg.position = per_component_positions[component_name]
+                self.latest_joints[component_name] = split_msg
+                self.updated_joints.add(component_name)
+
         if self.to_brain is None and len(self.last_command) == 1:
             self.last_command = ""
         if self.to_brain is not None:
             self.last_command = self.to_brain
-        if len(self.updated_joints) == len (self.expected_robots):
+        if len(self.updated_joints) == len(self.expected_robots):
             obs_dict = {
                 "images": self.latest_images.copy(), 
                 "joints": self.latest_joints.copy(),
@@ -227,10 +290,30 @@ class SynapseMainNode(Node):
         )
 
         if action is not None:
-            for robot, msg in action.items():
-                if robot in self.target_publishers:
-                    self.target_publishers[robot].publish(msg)
+            # ---- Encode: group this tick's per-component targets by their owning
+            # articulation group, combine into one JointState per group, publish
+            # once per group. Joint names are guaranteed unique within a group, so
+            # raw names can be concatenated as-is — no prefixing needed.
+            by_group = {}
+            for component_name, msg in action.items():
+                for group_name, group in self.groups.items():
+                    if component_name in group['components']:
+                        by_group.setdefault(group_name, {})[component_name] = msg
+                        break
 
+            for group_name, component_msgs in by_group.items():
+                if group_name not in self.target_publishers:
+                    continue
+                if len(component_msgs) == 1:
+                    self.target_publishers[group_name].publish(next(iter(component_msgs.values())))
+                else:
+                    combined = JointState()
+                    for component_name, msg in component_msgs.items():
+                        if not combined.name:
+                            combined.header = msg.header
+                        combined.name.extend(msg.name)
+                        combined.position.extend(msg.position)
+                    self.target_publishers[group_name].publish(combined)
 
 
 def main(args=None):
