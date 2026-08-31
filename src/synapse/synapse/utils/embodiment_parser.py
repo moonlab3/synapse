@@ -68,13 +68,26 @@ class EmbodimentParser:
                     flattened[comp_name] = merged
             else:
                 flattened[name] = cfg
+        self._validate_joint_indices(flattened)
 
         return flattened
+
+    def _validate_joint_indices(self, flattened: dict):
+        for name, cfg in flattened.items():
+            if cfg.get('type') not in ('manipulator', 'end-effector'):
+                continue
+            joint_names = cfg.get('joint_names')
+            joint_indices = cfg.get('joint_indices')
+            if joint_indices is None:
+                raise ValueError(
+                    f"❌ '{name}' in embodiment '{self.embodiment_name}' is missing joint_indices"
+                )
+            if len(joint_indices) != len(joint_names):
+                raise ValueError(
+                    f"❌ '{name}': joint_names has {len(joint_names)}, joint_indices has {len(joint_indices)}"
+                )
         
-    # def get_robots(self) -> dict:
-    #     return self.embodiment_config.get('robots', {})
 
     def get_total_dofs(self) -> int:
         robots = self.get_robots()
         return sum(len(robot.get('joint_names', [])) for robot in robots.values())
-        # return sum(robot.get('dof', 0) for robot in robots.values())

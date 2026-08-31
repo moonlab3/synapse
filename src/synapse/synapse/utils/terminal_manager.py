@@ -25,7 +25,7 @@ class BackgroundTUI:
         self.status = "Idle"
         self.obs_buffer_length = self.action_buffer_length = 0
         self.action_buffer_status = self.current_command = self.brain_node_map = self.running_brain = ""
-        self.log_buffer = deque(maxlen=50)
+        self.log_buffer = deque(maxlen=200)
         self.commands_queue = deque()
         self._running = True
         self.debug_mode = debug_mode
@@ -126,7 +126,6 @@ class BackgroundTUI:
                     # Catch terminal resize keys and non-ASCII to prevent chr() crash
                     if 0 <= key <= 255:
                         char = chr(key)
-                        # self.log(f"key:[{char}]")
                         
                         if char == 'b':
                             stdscr.nodelay(False)

@@ -92,10 +92,6 @@ class IsaacNode(Node):
             self.camera_publishers[name] = self.create_publisher(Image, topic, 10)
         self.cameras = {}
 
-        # ---- Build unified per-ARTICULATION groups. One group = one physical
-        # Articulation = one state topic = one target topic (point 2: no
-        # component-level topics anymore, no runtime collision detection needed
-        # since joint names within a single articulation are inherently unique).
         articulation_groups = parser.get_articulations()  # new nested schema only
         flat_robots = parser.get_robots()                  # flattened, all components
 
@@ -111,9 +107,6 @@ class IsaacNode(Node):
             }
             grouped_component_names.update(self.groups[group_name]['components'].keys())
 
-        # Old flat-schema robots (no 'components' key) — each becomes its own
-        # single-component group, identical to today's behavior. Lets embodiments
-        # migrate to the nested schema one at a time.
         for name, cfg in flat_robots.items():
             if name in grouped_component_names:
                 continue
@@ -130,6 +123,7 @@ class IsaacNode(Node):
         self.target_joints = {}
         self.initial_positions = {}
         self.joint_names = {}
+        self.joint_names_config = {}
         self.num_dofs = {}
         _log_robot_names = ""
 
@@ -210,15 +204,7 @@ class IsaacNode(Node):
                 init_pos = init_pos.detach().cpu().numpy()
             self.target_joints[group_name] = np.array(init_pos, dtype=np.float32)
 
-            # Full DOF set for this physical articulation — may span several
-            # logical components (e.g. left_arm + right_arm + left_hand + right_hand
-            # for DUAL_XARM_V5's single dual_xarm_unit prim). This is the ONLY
-            # joint-name list this node needs; per-component slicing is left to
-            # whichever adapter/consumer cares about that boundary, not this node.
             self.joint_names[group_name] = articulation.dof_names
-
-            component_names = list(self.groups[group_name]['components'].keys())
-            self.get_logger().info(f"  covers components: {component_names}")
 
         # LOADING CAMERA LOADING CAMERA
         for name, cfg in self.camera_cfg.items():
@@ -246,15 +232,9 @@ class IsaacNode(Node):
             self.get_logger().info(f"Camera initialized : {name}")
         # LOADING CAMERA LOADING CAMERA
 
-        # Update once to populate internal physics buffers
         simulation_app.update()
     
     def target_callback(self, msg: JointState, group_name: str):
-        """Receives target joints for one physical articulation. The message
-        may carry commands for several logical components at once (e.g. both
-        arms of a dual-arm unit) — that's fine, they all resolve against this
-        group's own dof_names, which are guaranteed unique since they come
-        from one physical Articulation."""
         if msg.position and self.reset_process >= 100:
             if msg.name:
                 for joint_name, joint_pos in zip(msg.name, msg.position):
@@ -270,7 +250,6 @@ class IsaacNode(Node):
                     self.target_joints[group_name][-1] = msg.position[-1]
 
     def spin_and_step(self):
-        """Manual loop to step both ROS2 and Isaac Sim concurrently"""
         while simulation_app.is_running():
             rclpy.spin_once(self, timeout_sec=0.0)
 

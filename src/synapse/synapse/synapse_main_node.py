@@ -97,11 +97,6 @@ class SynapseMainNode(Node):
                 Image, topic, 
                 functools.partial(self.image_callback, topic_name=name), 10)
 
-        # ---- Build unified per-ARTICULATION groups, same pattern as isaac_node.py.
-        # One group = one physical articulation = one states topic = one target
-        # topic. Joint names are unique within a group by construction (either one
-        # physical articulation in the new nested schema, or a single old-schema
-        # flat robot), so no runtime collision detection or namespacing is needed.
         articulation_groups = embodiment_parser.get_articulations()  # new nested schema
         self.robots_cfg = robots                                      # flattened, all components
 
@@ -185,6 +180,7 @@ class SynapseMainNode(Node):
             per_component_positions = {c: [] for c in components}
 
             for joint_name, pos in zip(msg.name, msg.position):
+                # self.terminal_ui.log(f"joint:{joint_name}, pos: {pos}")
                 component_name = next(
                     (c for c, cfg in components.items()
                     if joint_name in cfg.get('joint_names', [])),
@@ -269,7 +265,6 @@ class SynapseMainNode(Node):
             self.inference_future = None
         
         if self.inference_future is None and len(self.obs_buffer) > 0:
-            # Run inference in a separate thread to avoid blocking the BT tick
             historical_obs = list(self.obs_buffer)
             self.inference_future = self.inference_executor.submit(
                 self.brain_adapters[self.running_brain].infer, 
@@ -290,10 +285,6 @@ class SynapseMainNode(Node):
         )
 
         if action is not None:
-            # ---- Encode: group this tick's per-component targets by their owning
-            # articulation group, combine into one JointState per group, publish
-            # once per group. Joint names are guaranteed unique within a group, so
-            # raw names can be concatenated as-is — no prefixing needed.
             by_group = {}
             for component_name, msg in action.items():
                 for group_name, group in self.groups.items():

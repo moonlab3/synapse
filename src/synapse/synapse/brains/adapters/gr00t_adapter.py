@@ -40,10 +40,10 @@ def solve_ik_jit(
     target_se3: jaxlie.SE3,
     target_link_idx: jax.Array,
     initial_q: jax.Array,
+    joint_mask: jax.Array,
 ) -> jax.Array:
     """JIT-compiled IK solver for extreme performance."""
     joint_var = robot.joint_var_cls(0)
-    joint_mask = jnp.ones(robot.joints.num_actuated_joints)
 
     costs = [
         pk.costs.pose_cost_analytic_jac(
@@ -90,13 +90,14 @@ class GR00TAdapter(BaseBrainAdapter):
         else:
             print(f"🔌 PolicyClient initialized and connected to GR00T server at {ip}:{port}.")
         
-        # 2. Dynamic Embodiment Configuration
         parser = EmbodimentParser(self.embodiment_name)
         self.robots_cfg = parser.get_robots()
 
         self.robots = {}
         self.eef_frame = {}
         self.current_eef_poses = {}
+        self.dof_indices = {}
+        self.dof_mask = {}
         
         dummy_se3 = jaxlie.SE3.identity()
 
@@ -111,23 +112,27 @@ class GR00TAdapter(BaseBrainAdapter):
                 self.eef_frame[name] = cfg.get('eef_frame')
                 self.current_eef_poses[name] = [0.0] * 6
                 
-                # 3. Warm up JAX Compiler per robot
+                expected_dofs = self.robots[name].joints.num_actuated_joints
+                joint_indices = cfg.get('joint_indices')
+                self.dof_indices[name] = jnp.array(joint_indices, dtype=jnp.int32)
+                self.dof_mask[name] = jnp.zeros(expected_dofs).at[self.dof_indices[name]].set(1.0)
                 dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
-                dummy_q = jnp.zeros(self.robots[name].joints.num_actuated_joints)
-                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q) 
+                dummy_q = jnp.zeros(expected_dofs)
+                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q, self.dof_mask[name]) 
                 
         print("⚡ JAX IK Compiler ready for all manipulators.")
         self.terminal = terminal
         self.terminal.wait_debug("gr00t adapter init done")
 
-    def _pad_joints(self, q_array: jnp.ndarray, expected_dofs: int) -> jnp.ndarray:
-        current_dofs = q_array.shape[0]
-        if current_dofs < expected_dofs:
-            padding = jnp.zeros(expected_dofs - current_dofs)
-            return jnp.concatenate([q_array, padding])
-        elif current_dofs > expected_dofs:
-            return q_array[:expected_dofs]
-        return q_array
+    def _scatter_to_full(self, name, q_array: jnp.ndarray) -> jnp.ndarray:
+        idx = self.dof_indices[name]
+        n = idx.shape[0]
+        if q_array.shape[0] > n:
+            q_array = q_array[:n]
+        elif q_array.shape[0] < n:
+            q_array = jnp.concatenate([q_array, jnp.zeros(n - q_array.shape[0])])
+        expected_dofs = self.robots[name].joints.num_actuated_joints
+        return jnp.zeros(expected_dofs).at[idx].set(q_array)
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
         translation = se3.translation()
@@ -154,9 +159,8 @@ class GR00TAdapter(BaseBrainAdapter):
                     eef_poses[name] = self.current_eef_poses.get(name, [0.0] * 6).copy()
                     continue
 
-                expected_dofs = self.robots[name].joints.num_actuated_joints
                 q = jnp.array(joint_state.position)
-                q_padded = self._pad_joints(q, expected_dofs)
+                q_padded = self._scatter_to_full(name, q)
                 
                 all_link_poses = self.robots[name].forward_kinematics(q_padded)
                 eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
@@ -281,9 +285,8 @@ class GR00TAdapter(BaseBrainAdapter):
         seed_qs = {}
         for name, cfg in self.robots_cfg.items():
             if cfg.get('type') == 'manipulator' and name in original_joints:
-                expected_dofs = self.robots[name].joints.num_actuated_joints
                 q = jnp.array(original_joints[name].position)
-                seed_qs[name] = self._pad_joints(q, expected_dofs)
+                seed_qs[name] = self._scatter_to_full(name, q)
 
         # 2. Iterate through the GR00T chunk sequence
         for step_index in range(num_chunks):
@@ -326,16 +329,23 @@ class GR00TAdapter(BaseBrainAdapter):
                         self.robots[name],
                         target_se3,
                         target_link_idx_jax,
-                        seed_qs[name] 
+                        seed_qs[name],
+                        self.dof_mask[name],
                     )
                     
                     seed_qs[name] = optimized_q 
                     
                     # Map gripper back to hardware limits
                     finger_target = float(np.clip(gripper_cmd, 0.0, 1.0) * 0.04)
-                    final_positions = optimized_q.tolist()
-                    
+
+                    idx_list = self.dof_indices[name].tolist()
                     original_length = len(original_js.position)
+                    final_positions = list(original_js.position)
+
+                    for local_i, global_i in enumerate(idx_list):
+                        if local_i < original_length:
+                            final_positions[local_i] = float(optimized_q[global_i])
+                    
                     if len(final_positions) >= 8:
                         final_positions[7] = finger_target
 
@@ -343,11 +353,10 @@ class GR00TAdapter(BaseBrainAdapter):
                     out_msg = JointState()
                     out_msg.header = original_js.header
                     out_msg.name = original_js.name
-                    out_msg.position = final_positions[:original_length]
+                    out_msg.position = final_positions
 
                     step_dict[name] = out_msg
                 else:
-                    # Non-manipulators bypass IK safely. 
                     step_dict[name] = original_js
 
             action_chunk.append(step_dict)

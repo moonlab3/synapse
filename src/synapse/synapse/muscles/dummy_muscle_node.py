@@ -21,29 +21,49 @@ class DummyMuscleNode(Node):
         freq = self.get_parameter('publish_rate_hz').value
         embodiment_name = self.get_parameter('embodiment_name').value
         parser = EmbodimentParser(embodiment_name)
-        self.robots_cfg = parser.get_robots()
+        self.robots_cfg = parser.get_robots()          # flattened, per-component
+
+        articulation_groups = parser.get_articulations()
+        self.groups = {}
+        grouped_component_names = set()
+
+        for group_name, group_cfg in articulation_groups.items():
+            self.groups[group_name] = {
+                'states': group_cfg.get('states', f'/synapse/joint_states/{group_name}'),
+                'target': group_cfg.get('target', f'/synapse/target/{group_name}'),
+                'components': group_cfg.get('components', {}),
+            }
+            grouped_component_names.update(self.groups[group_name]['components'].keys())
+
+        for name, cfg in self.robots_cfg.items():
+            if name in grouped_component_names:
+                continue
+            self.groups[name] = {
+                'states': cfg.get('states', f'/synapse/joint_states/{name}'),
+                'target': cfg.get('target', f'/synapse/target/{name}'),
+                'components': {name: cfg},
+            }
 
         self.target_subscribers = {}
-        self.robot_publishers = {}
+        self.state_publishers = {}
 
         self.current_joints = {}
         self.target_joints = {}
         self.joint_names = {}
 
         for name, cfg in self.robots_cfg.items():
-            target = cfg.get('target', f'/synapse/target/{name}')
-            joint_states = cfg.get('states', f'/synapse/joint_states/{name}')
-
-            self.target_subscribers[name] = self.create_subscription(
-                JointState, target,
-                functools.partial(self.target_callback, robot_name=name), 10)
-
-            self.robot_publishers[name] = self.create_publisher(JointState, joint_states, 10)
             self.joint_names[name] = cfg.get('joint_names', [])
             dof = len(self.joint_names[name])
-
             self.current_joints[name] = np.zeros(dof, dtype=np.float32)
             self.target_joints[name] = np.zeros(dof, dtype=np.float32)
+
+        # ---- One subscriber and one publisher per GROUP, not per component.
+        for group_name, group in self.groups.items():
+            self.target_subscribers[group_name] = self.create_subscription(
+                JointState, group['target'],
+                functools.partial(self.target_callback, group_name=group_name), 10)
+            self.state_publishers[group_name] = self.create_publisher(
+                JointState, group['states'], 10)
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
 
@@ -75,34 +95,70 @@ class DummyMuscleNode(Node):
                 pass
 
     def spin_and_step(self):
-        """100Hz loop to simulate physics and publish states."""
-        for name in self.robots_cfg.keys():
-            if len(self.current_joints[name]) == 0:
-                continue
-            # ⚡ Dummy "Physics": Simple P-Controller interpolation
-            # Moves the current state 15% closer to the target every frame (visual smoothing)
-            self.current_joints[name] += 0.15 * (self.target_joints[name] - self.current_joints[name])
-            
-            msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name = self.joint_names.get(name, [])
-            msg.position = self.current_joints[name].tolist()
-            
-            output = ",".join(f"{x:.2f}" for x in msg.position)
-            self.get_logger().info(f"ROBOT[{name}] joint_states[{output}]")
-            self.robot_publishers[name].publish(msg)
+        """100Hz loop to simulate physics and publish states, one combined
+        message per physical articulation group (mirrors isaac_node.py)."""
+        for group_name, group in self.groups.items():
+            combined = JointState()
+            combined.header.stamp = self.get_clock().now().to_msg()
+            debug_parts = []
 
-    def target_callback(self, msg: JointState, robot_name: str):
-        """Receives target joints from synapse_main_node and updates specific robot."""
-        if msg.position:
+            for component_name in group['components']:
+                if len(self.current_joints[component_name]) == 0:
+                    continue
+                # ⚡ Dummy "Physics": Simple P-Controller interpolation
+                self.current_joints[component_name] += 0.15 * (
+                    self.target_joints[component_name] - self.current_joints[component_name]
+                )
+                combined.name.extend(self.joint_names.get(component_name, []))
+                combined.position.extend(self.current_joints[component_name].tolist())
+
+                output = ",".join(f"{x:.2f}" for x in self.current_joints[component_name])
+                debug_parts.append(f"{component_name}[{output}]")
+
+            if not combined.name:
+                continue
+
+            if debug_parts:
+                self.get_logger().info(f"ROBOT " + " | ".join(debug_parts))
+            self.state_publishers[group_name].publish(combined)
+
+    def target_callback(self, msg: JointState, group_name: str):
+        if not msg.position:
+            return
+
+        components = self.groups[group_name]['components']
+
+        if len(components) == 1:
+            component_name = next(iter(components))
             incoming_target = np.array(msg.position, dtype=np.float32)
-            self.target_joints[robot_name] = incoming_target
-            self.joint_names[robot_name] = msg.name
-            
-            # If this is the very first message, snap the current joints to the target 
-            # to initialize the array shape and prevent a wild jump from zero.
-            if len(self.current_joints[robot_name]) != len(incoming_target):
-                self.current_joints[robot_name] = incoming_target.copy()
+            self.target_joints[component_name] = incoming_target
+            self.joint_names[component_name] = msg.name
+            if len(self.current_joints[component_name]) != len(incoming_target):
+                self.current_joints[component_name] = incoming_target.copy()
+            return
+
+        per_component_names = {c: [] for c in components}
+        per_component_positions = {c: [] for c in components}
+
+        for joint_name, pos in zip(msg.name, msg.position):
+            component_name = next(
+                (c for c, cfg in components.items()
+                 if joint_name in cfg.get('joint_names', [])),
+                None
+            )
+            if component_name is None:
+                continue
+            per_component_names[component_name].append(joint_name)
+            per_component_positions[component_name].append(pos)
+
+        for component_name in components:
+            if not per_component_names[component_name]:
+                continue  # this message carried no data for this component
+            incoming_target = np.array(per_component_positions[component_name], dtype=np.float32)
+            self.target_joints[component_name] = incoming_target
+            self.joint_names[component_name] = per_component_names[component_name]
+            if len(self.current_joints[component_name]) != len(incoming_target):
+                self.current_joints[component_name] = incoming_target.copy()
 
 def main(args=None):
     rclpy.init(args=args)

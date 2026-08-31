@@ -20,10 +20,11 @@ def solve_ik_jit(
     target_se3: jaxlie.SE3,
     target_link_idx: jax.Array,
     initial_q: jax.Array,
+    joint_mask: jax.Array
     ) -> jax.Array:
     """JIT-compiled IK solver for extreme performance."""
     joint_var = robot.joint_var_cls(0)
-    joint_mask = jnp.ones(robot.joints.num_actuated_joints)
+    # joint_mask = jnp.ones(robot.joints.num_actuated_joints)
 
     costs = [
         pk.costs.pose_cost_analytic_jac(
@@ -70,6 +71,9 @@ class ManualAdapter(BaseBrainAdapter):
         dummy_se3 = jaxlie.SE3.identity()
         self.robots = {}
         self.eef_frame = {}
+        self.dof_indices = {}
+        self.dof_mask = {}
+
         for name, cfg in self.robots_cfg.items():
             if cfg.get('type') == 'manipulator':
                 if cfg.get('yourdfpy_description'):
@@ -77,19 +81,22 @@ class ManualAdapter(BaseBrainAdapter):
                 else:
                     urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
                 self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
-                self.terminal.wait_debug(f"[{name}] loaded")
 
                 self.eef_frame[name] = cfg.get('eef_frame')
-                # for link_name in self.robots[name].links.names:
-                #     self.terminal.wait_debug(f"[{link_name}]")
+                expected_dofs = self.robots[name].joints.num_actuated_joints
+
+                joint_indices = cfg.get('joint_indices')
+
+                self.dof_indices[name] = jnp.array(joint_indices, dtype = jnp.int32)
+                self.dof_mask[name] = jnp.zeros(expected_dofs).at[self.dof_indices[name]].set(1.0)
 
                 self.terminal.wait_debug(f"[{self.robots[name].links.names}]")
                 dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
-                self.terminal.wait_debug(f"[{self.robots[name]}]'s joints: {self.robots[name].joints.num_actuated_joints}")
-                dummy_q = jnp.zeros(self.robots[name].joints.num_actuated_joints)
-                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q) 
+                self.terminal.log(f"[{name}] actuated joints: {self.robots[name].joints.actuated_names}")
+                dummy_q = jnp.zeros(expected_dofs)
+                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q, self.dof_mask[name]) 
             elif cfg.get('type') == 'end-effector':
-                self.single_finger_dofs = cfg.get('single_finger_dofs', 5)
+                self.single_finger_dofs = cfg.get('single_finger_dofs', 4)
 
         print("⚡ JAX IK Compiler ready. Solving at microseconds.")
         print("Manual Mode Key input: eef pose +x [s], +y [d], +z[f], +roll[w], +pitch[e], +yaw[r]")
@@ -111,6 +118,16 @@ class ManualAdapter(BaseBrainAdapter):
         rotation = jaxlie.SO3.from_rpy_radians(pose_list[3], pose_list[4], pose_list[5])
         return jaxlie.SE3.from_rotation_and_translation(rotation, translation)
 
+    def _scatter_to_full(self, name, raw_q):
+        idx = self.dof_indices[name]
+        n = idx.shape[0]
+        if raw_q.shape[0] > n:
+            raw_q = raw_q[:n]
+        elif raw_q.shape[0] < n:
+            raw_q = jnp.pad(raw_q, (0, n - raw_q.shape[0]))
+        expected_dofs = self.robots[name].joints.num_actuated_joints
+        return jnp.zeros(expected_dofs).at[idx].set(raw_q)
+
     def _forward_kinematics(self, joint_states_dict: dict) -> dict:
         eef_poses = {}
         
@@ -123,16 +140,9 @@ class ManualAdapter(BaseBrainAdapter):
                     print(f"eef poses zero copy")
                     continue
 
-                expected_dofs = self.robots[name].joints.num_actuated_joints
                 raw_q = jnp.array(joint_state.position)
-                
-                if raw_q.shape[0] > expected_dofs:
-                    q_fk = raw_q[:expected_dofs]
-                elif raw_q.shape[0] < expected_dofs:
-                    q_fk = jnp.pad(raw_q, (0, expected_dofs - raw_q.shape[0]))
-                else:
-                    q_fk = raw_q
-                
+                q_fk = self._scatter_to_full(name, raw_q)
+
                 all_link_poses = self.robots[name].forward_kinematics(q_fk)
                 eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
                 
@@ -160,15 +170,8 @@ class ManualAdapter(BaseBrainAdapter):
 
                 target_se3 = self._list_to_se3(eef_pose)
                 
-                expected_dofs = self.robots[name].joints.num_actuated_joints
                 raw_q = jnp.array(original_js.position)
-
-                if raw_q.shape[0] > expected_dofs:
-                    ik_seed_q = raw_q[:expected_dofs]
-                elif raw_q.shape[0] < expected_dofs:
-                    ik_seed_q = jnp.pad(raw_q, (0, expected_dofs - raw_q.shape[0]))
-                else:
-                    ik_seed_q = raw_q
+                ik_seed_q = self._scatter_to_full(name, raw_q)
 
                 eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
                 target_link_idx_jax = jnp.array(eef_idx, dtype=jnp.int32)
@@ -177,12 +180,15 @@ class ManualAdapter(BaseBrainAdapter):
                     self.robots[name],
                     target_se3,
                     target_link_idx_jax,
-                    ik_seed_q
+                    ik_seed_q,
+                    self.dof_mask[name],
                 )
 
-                final_position = list(original_js.position) 
-                for i in range(min(len(optimized_q), len(final_position))):
-                    final_position[i] = float(optimized_q[i])
+                idx_list = self.dof_indices[name].tolist()
+                final_position = list(original_js.position)
+                for local_i, global_i in enumerate(idx_list):
+                    if local_i < len(final_position):
+                        final_position[local_i] = float(optimized_q[global_i])
                 
                 out_msg = JointState()
                 out_msg.header = original_js.header
@@ -230,10 +236,6 @@ class ManualAdapter(BaseBrainAdapter):
         return [target_dict]
 
     def _communicate_with_policy(self, formatted_obs: dict) -> dict:
-        """
-        Acts as the manual 'policy'. Reads keyboard commands to adjust the EEF pose 
-        of the actively selected manipulator.
-        """
         command = formatted_obs.get("command")
         eef_poses = formatted_obs.get("eef_poses", {})
         original_joints = formatted_obs.get("original_joints", {})
@@ -311,8 +313,6 @@ class ManualAdapter(BaseBrainAdapter):
                             def apply_bend(finger_index, sign):
                                 start = finger_index * self.single_finger_dofs
                                 end = min(start + self.single_finger_dofs, dofs)
-                                # start = finger_index * 4
-                                # end = min(start + 4, dofs)
                                 for idx in range(start, end):
                                     joints[idx] += sign * self.hand_step_size
 
