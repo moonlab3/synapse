@@ -140,7 +140,6 @@ class SynapseMainNode(Node):
         self.action_buffer = ActionChunkBuffer()  # Manage action chunks from the brain
         self.obs_buffer = deque(maxlen=obs_buffer_size)
         
-        # State
         self.inference_future = None
         self.inference_executor = ThreadPoolExecutor(max_workers=1)  # Dedicated thread for inference
         self.is_ticking = False
