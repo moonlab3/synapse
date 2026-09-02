@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
@@ -57,6 +58,8 @@ class RealRobotNode(Node):
             JointState, '/synapse/joint_states/dual_xarm_unit', 10
         )
 
+        self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
+
         self.get_logger().info(
             f"🌉 RealRobotNode bridge ready for '{embodiment_name}': "
             f"controllers={list(self.traj_pubs.keys())}, move_time_sec={self.move_time_sec}"
@@ -95,6 +98,25 @@ class RealRobotNode(Node):
     def _feedback_callback(self, msg: JointState):
         """Pass the broadcaster's combined feedback through under Synapse's topic name."""
         self.feedback_pub.publish(msg)
+
+    def synapse_command_callback(self, msg: String):
+        """Receives commands from synapse_bt_node (e.g., start, stop)"""
+        command = msg.data
+        match command:
+            case "START":
+                self.get_logger().info("Received START command. Resuming simulation.")
+            case "PAUSE":
+                self.get_logger().info("Received PAUSE command. Pausing simulation.")
+            case "QUIT":
+                self.get_logger().info("Received QUIT command. Shutting down Isaac Muscle Node.")
+                rclpy.shutdown()
+            case "RESET":
+                self.get_logger().info("Received RESET command. Resetting robot to initial pose")
+                # self.target_joints = self.initial_positions.copy()
+                # self.reset_process = 0
+
+            case _:
+                self.get_logger().warn(f"Unknown command received: {command}")
 
 
 def main(args=None):

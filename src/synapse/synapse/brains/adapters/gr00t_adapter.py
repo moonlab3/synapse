@@ -324,7 +324,6 @@ class GR00TAdapter(BaseBrainAdapter):
                     target_se3 = self._list_to_se3(target_eef_pose)
                     target_link_idx_jax = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
                     
-                    # JIT IK Solve using the PREVIOUS step's output as the seed
                     optimized_q = solve_ik_jit(
                         self.robots[name],
                         target_se3,
