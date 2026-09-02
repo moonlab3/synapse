@@ -75,6 +75,15 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
             nodes.append(LogInfo(msg="====================================="))
             nodes.append(LogInfo(msg="🚨 PLEASE PREPARE YOUR REAL ROBOT! 🚨"))
             nodes.append(LogInfo(msg="====================================="))
+            nodes.append(
+                Node(
+                    package='synapse',
+                    executable='real_robot_node.py',
+                    output='screen',
+                    emulate_tty=True,
+                    parameters=[active_config],
+                )
+            )
             
     return nodes
 

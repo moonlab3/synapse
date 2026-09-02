@@ -59,7 +59,7 @@ def solve_ik_jit(
 class ManualAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        self.step_size = 0.3
+        self.step_size = 0.01
         self.hand_step_size = 0.3
         self.current_eef_poses = {}
         self.current_hand_joints = {}
