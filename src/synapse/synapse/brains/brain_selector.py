@@ -1,6 +1,7 @@
 from .adapters.gr00t_adapter import GR00TAdapter
 from .adapters.manual_adapter import ManualAdapter
 from .adapters.dummy_brain_adapter import DummyBrainAdapter
+from .adapters.random_brain_adapter import RandomBrainAdapter
 
 class BrainSelector:
 
@@ -19,6 +20,12 @@ class BrainSelector:
                 case 'GR00T':
                     _node = node_name if node_name else "gr00t_adapter"
                     return GR00TAdapter(
+                        terminal,
+                        node_name=_node,
+                        parameter_overrides=parameter_overrides)
+                case 'RANDOM':
+                    _node = node_name if node_name else "random_brain_adapter"
+                    return RandomBrainAdapter(
                         terminal,
                         node_name=_node,
                         parameter_overrides=parameter_overrides)

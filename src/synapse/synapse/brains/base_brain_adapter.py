@@ -22,9 +22,11 @@ class BaseBrainAdapter(ABC, Node):
         
         # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
         raw_action = self._communicate_with_policy(formatted_obs)
+        # self.terminal.wait_debug("after communicate policy")
         
         # 3. Format action for muscle wrapper (and apply IK if needed)
         action_chunk = self._format_for_muscle(raw_action)
+        # self.terminal.wait_debug("after format muscle")
 
         # if action_chunk and isinstance(action_chunk[0], dict):
         #     debug_strings = []

@@ -27,10 +27,11 @@ class RealRobotNode(Node):
         )
 
         embodiment_name = self.get_parameter('embodiment_name').value
-
-        if not self.has_parameter('move_time_sec'):
-            self.declare_parameter('move_time_sec', 0.01)
         self.move_time_sec = self.get_parameter('move_time_sec').value
+        self.min_move_time_sec = self.get_parameter('min_move_time_sec').value
+
+        self.last_positions = {}
+        self.last_command_time = None
 
         parser = EmbodimentParser(embodiment_name)
         self.robots_cfg = parser.get_robots()  # flattened: left_arm, right_arm, left_hand, right_hand, ...
@@ -47,9 +48,6 @@ class RealRobotNode(Node):
             JointState, '/synapse/target/dual_xarm_unit', self._target_callback, 10
         )
 
-        # --- Feedback path: real controllers -> Synapse joint_states ---
-        # joint_state_broadcaster publishes every joint from both arms in one
-        # combined /joint_states message, which is exactly what Synapse's
         # obs_callback already expects to split per-component.
         self.feedback_sub = self.create_subscription(
             JointState, '/joint_states', self._feedback_callback, 10
@@ -66,7 +64,14 @@ class RealRobotNode(Node):
         )
 
     def _target_callback(self, msg: JointState):
-        """Split one combined JointState target into per-arm JointTrajectory commands."""
+        now = self.get_clock().now()
+        if self.last_command_time is not None:
+            dt = (now - self.last_command_time).nanoseconds / 1e9
+            dt = max(dt, self.min_move_time_sec)
+        else:
+            dt = self.move_time_sec
+        self.last_command_time = now
+
         name_to_pos = dict(zip(msg.name, msg.position))
 
         for component_name, pub in self.traj_pubs.items():
@@ -81,19 +86,27 @@ class RealRobotNode(Node):
                     missing.append(jn)
 
             if missing:
-                # Incomplete target for this arm on this tick -- skip rather
-                # than send a partial/garbage trajectory to real hardware.
                 self.get_logger().warn(f"⚠️ [{component_name}] missing joints in target: {missing}, skipping tick.")
                 continue
+
+            prev_positions = self.last_positions.get(component_name)
+            if prev_positions is not None and len(prev_positions) == len(positions):
+                velocities = [(p - c) / dt for p, c in zip(positions, prev_positions)]
+            else:
+                velocities = [0.0] * len(positions)
+
 
             traj = JointTrajectory()
             traj.joint_names = joint_names
             point = JointTrajectoryPoint()
             point.positions = positions
+            point.velocities = velocities
             point.time_from_start = Duration(sec=0, nanosec=int(self.move_time_sec * 1e9))
             traj.points = [point]
 
             pub.publish(traj)
+
+            self.last_positions[component_name] = positions
 
     def _feedback_callback(self, msg: JointState):
         """Pass the broadcaster's combined feedback through under Synapse's topic name."""

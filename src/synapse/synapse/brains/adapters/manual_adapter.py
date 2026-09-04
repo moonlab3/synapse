@@ -59,13 +59,13 @@ def solve_ik_jit(
 class ManualAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        self.step_size = 0.01
-        self.hand_step_size = 0.3
         self.current_eef_poses = {}
         self.current_hand_joints = {}
         self.terminal = terminal
 
         parser = EmbodimentParser(self.embodiment_name)
+        self.manipulator_step_size = parser.get_config().get('manipulator_step_size')
+        self.eef_step_size = parser.get_config().get('eef_step_size')
         self.robots_cfg = parser.get_robots()
 
         dummy_se3 = jaxlie.SE3.identity()
@@ -227,10 +227,10 @@ class ManualAdapter(BaseBrainAdapter):
         
         target_dict = {}
         for name, cfg in self.robots_cfg.items():
+            fallback_joints = original_joints.get(name, JointState())
             if cfg.get('type') == 'manipulator':
-                target_dict[name] = manipulator_targets.get(name, JointState())
+                target_dict[name] = manipulator_targets.get(name, fallback_joints)
             else:
-                fallback_joints = original_joints.get(name, JointState())
                 target_dict[name] = target_joints_from_policy.get(name, fallback_joints)
         
         return [target_dict]
@@ -285,18 +285,18 @@ class ManualAdapter(BaseBrainAdapter):
                     for active_arm_name in active_arms:
                         pose = eef_poses[active_arm_name]
                         match command:
-                            case 's': pose[0] += self.step_size
-                            case 'S': pose[0] -= self.step_size
-                            case 'd': pose[1] += self.step_size
-                            case 'D': pose[1] -= self.step_size
-                            case 'f': pose[2] += self.step_size
-                            case 'F': pose[2] -= self.step_size
-                            case 'w': pose[3] += self.step_size
-                            case 'W': pose[3] -= self.step_size
-                            case 'e': pose[4] += self.step_size
-                            case 'E': pose[4] -= self.step_size
-                            case 'r': pose[5] += self.step_size
-                            case 'R': pose[5] -= self.step_size
+                            case 's': pose[0] += self.manipulator_step_size
+                            case 'S': pose[0] -= self.manipulator_step_size
+                            case 'd': pose[1] += self.manipulator_step_size
+                            case 'D': pose[1] -= self.manipulator_step_size
+                            case 'f': pose[2] += self.manipulator_step_size
+                            case 'F': pose[2] -= self.manipulator_step_size
+                            case 'w': pose[3] += self.manipulator_step_size
+                            case 'W': pose[3] -= self.manipulator_step_size
+                            case 'e': pose[4] += self.manipulator_step_size
+                            case 'E': pose[4] -= self.manipulator_step_size
+                            case 'r': pose[5] += self.manipulator_step_size
+                            case 'R': pose[5] -= self.manipulator_step_size
                             case _: pass
 
                         eef_poses[active_arm_name] = pose
@@ -314,7 +314,7 @@ class ManualAdapter(BaseBrainAdapter):
                                 start = finger_index * self.single_finger_dofs
                                 end = min(start + self.single_finger_dofs, dofs)
                                 for idx in range(start, end):
-                                    joints[idx] += sign * self.hand_step_size
+                                    joints[idx] += sign * self.eef_step_size
 
                             match command:
                                 case 'g': apply_bend(0, 1)

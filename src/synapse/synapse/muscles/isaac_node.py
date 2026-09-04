@@ -76,9 +76,6 @@ class IsaacNode(Node):
             automatically_declare_parameters_from_overrides=True
         )
 
-        self.usd_path = self.get_parameter('usd_path').value
-        self.robot_name = self.get_parameter('robot_name').value
-        self.robot_prim_path = self.get_parameter('robot_prim_path').value
         self.publish_rate = self.get_parameter('publish_rate_hz').value
         embodiment_name = self.get_parameter('embodiment_name').value
 

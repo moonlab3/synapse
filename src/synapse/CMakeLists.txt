@@ -26,7 +26,6 @@ install(
   synapse/muscles/dummy_muscle_node.py
   synapse/muscles/real_robot_node.py
   synapse/muscles/rviz_node.py
-  synapse/utils/test.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

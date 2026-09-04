@@ -21,6 +21,8 @@ DUAL_XARM_V5:
   # right arm. pitch 30, yaw 30 := tilt 41.4, rotate 40.9
   table_height: 0.85
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_xarm7_v5_sense.usd"
+  manipulator_step_size: 0.002
+  eef_step_size: 0.01
   robots:
     dual_xarm_unit:                     # one physical articulation
       prim_path: "/Dual_Xarm7_v5_sense"
