@@ -25,7 +25,6 @@ bottle_opener:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   # muscle_option: "ISAAC"
-  # muscle_option: "DUMMY"
   muscle_option: "REAL_ROBOT"
   move_time_sec: 0.01       # mandatory setting for REAL_ROBOT
   min_move_time_sec: 0.01   # mandatory setting for REAL_ROBOT
@@ -33,7 +32,46 @@ bottle_opener:
   brain_registry:
     - "manual_adapter:MANUAL"
     - "random_brain_adapter:RANDOM"
+    - "rosbag_player:ROSBAG"
+
+  rosbag_player:
+    bag_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/snack1.json"
+    topic_component_map:
+      - "/xarm7_left_controller/commands:left_arm"
+      - "/xarm7_right_controller/commands:right_arm"
+      - "/allegro_hand_position_effort_controller_l/commands:left_hand"
+      - "/allegro_hand_position_effort_controller_r/commands:right_hand"
+    seek_velocity: 0.2
+    seek_min_duration: 0.5
+
+  publish_rate_hz: 100
+
+bottle_dummy:
+  scenario_filename: "scn_v2.yaml"
+  embodiment_name: "DUAL_XARM_V5"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  # muscle_option: "ISAAC"
+  muscle_option: "DUMMY"
+  # muscle_option: "REAL_ROBOT"
+  move_time_sec: 0.01       # mandatory setting for REAL_ROBOT
+  min_move_time_sec: 0.01   # mandatory setting for REAL_ROBOT
+
+  brain_registry:
+    - "manual_adapter:MANUAL"
+    - "random_brain_adapter:RANDOM"
+    - "rosbag_player:ROSBAG"
     # - "external_control:DUMMY"
+
+  rosbag_player:
+    bag_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/snack1.json"
+    topic_component_map:
+      - "/xarm7_left_controller/commands:left_arm"
+      - "/xarm7_right_controller/commands:right_arm"
+      - "/allegro_hand_position_effort_controller_l/commands:left_hand"
+      - "/allegro_hand_position_effort_controller_r/commands:right_hand"
+    seek_velocity: 0.2
+    seek_min_duration: 0.5
 
   publish_rate_hz: 100
 

@@ -2,6 +2,7 @@ from .adapters.gr00t_adapter import GR00TAdapter
 from .adapters.manual_adapter import ManualAdapter
 from .adapters.dummy_brain_adapter import DummyBrainAdapter
 from .adapters.random_brain_adapter import RandomBrainAdapter
+from .adapters.rosbag_adapter import RosbagAdapter
 
 class BrainSelector:
 
@@ -14,26 +15,27 @@ class BrainSelector:
                 case 'MANUAL':
                     _node = node_name if node_name else "manual_adapter"
                     return ManualAdapter(
-                        terminal,
-                        node_name=_node,
+                        terminal, node_name=_node,
                         parameter_overrides=parameter_overrides)
                 case 'GR00T':
                     _node = node_name if node_name else "gr00t_adapter"
                     return GR00TAdapter(
-                        terminal,
-                        node_name=_node,
+                        terminal, node_name=_node,
                         parameter_overrides=parameter_overrides)
                 case 'RANDOM':
                     _node = node_name if node_name else "random_brain_adapter"
                     return RandomBrainAdapter(
-                        terminal,
-                        node_name=_node,
+                        terminal, node_name=_node,
                         parameter_overrides=parameter_overrides)
                 case 'DUMMY':  # <-- Add the DUMMY case
                     _node = node_name if node_name else "dummy_brain_adapter"
                     return DummyBrainAdapter(
-                        terminal,
-                        node_name=_node,
+                        terminal, node_name=_node,
+                        parameter_overrides=parameter_overrides)
+                case 'ROSBAG':
+                    _node = node_name if node_name else "rosbag_adapter"
+                    return RosbagAdapter(
+                        terminal, node_name = _node,
                         parameter_overrides=parameter_overrides)
                 case _:
                     return None
