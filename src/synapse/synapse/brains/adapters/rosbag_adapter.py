@@ -5,9 +5,9 @@ import time
 import numpy as np
 from sensor_msgs.msg import JointState
 
-from synapse.brains.base_brain_adapter import BaseBrainAdapter
+from ..base_brain_adapter import BaseBrainAdapter
+from ..base_brain_adapter import InferenceOption
 from synapse.utils.embodiment_parser import EmbodimentParser
-
 
 class RosbagAdapter(BaseBrainAdapter):
 
@@ -23,9 +23,9 @@ class RosbagAdapter(BaseBrainAdapter):
             return self.get_parameter(full).value if self.has_parameter(full) else default
 
         self.bag_path = _p('bag_path', None)
-        raw_map = _p('topic_component_map', [])       # ["topic:component", ...]
-        self.seek_velocity = _p('seek_velocity', 0.2)         # rad/s
-        self.seek_min_duration = _p('seek_min_duration', 0.5)  # sec
+        raw_map = _p('topic_component_map', [])
+        self.seek_velocity = _p('seek_velocity', 0.2)
+        self.seek_min_duration = _p('seek_min_duration', 0.5)
         self.denormal_epsilon = _p('denormal_epsilon', 1e-6)
 
         self.topic_component_map = {}
@@ -36,12 +36,12 @@ class RosbagAdapter(BaseBrainAdapter):
         parser = EmbodimentParser(self.embodiment_name)
         self.robots_cfg = parser.get_robots()
 
-        self.state = None                # set once seeded from first observation
-        self.bag_data = {}               # component -> sorted [{t, data}, ...]
-        self.cursor = {}                 # component -> next unread index
-        self.first_position = {}         # component -> bag's t≈0 pose
-        self.current_values = {}         # component -> latest emitted pose
-        self.seek_start_pose = {}        # component -> pose we started seeking from
+        self.state = None
+        self.bag_data = {}
+        self.cursor = {}
+        self.first_position = {}
+        self.current_values = {}
+        self.seek_start_pose = {}
         self.seek_duration = 0.0
         self.seek_start_time = None
         self.playback_start_time = None
@@ -73,7 +73,6 @@ class RosbagAdapter(BaseBrainAdapter):
 
             msgs = sorted(messages[topic], key=lambda m: m['t'])
 
-            # Sanitize denormal near-zero artifacts seen in recorded data.
             for m in msgs:
                 data = np.array(m['data'], dtype=np.float64)
                 data[np.abs(data) < self.denormal_epsilon] = 0.0
@@ -85,21 +84,20 @@ class RosbagAdapter(BaseBrainAdapter):
 
     # ------------------------------------------------------------------
 
-    def _seed_if_needed(self, joints_dict):
-        if self.state is not None:
-            return
-
+    def _start_seek(self, joints_dict):
         for component in self.bag_data:
             joint_state = joints_dict.get(component)
             n = len(self.first_position[component])
             if joint_state is not None and joint_state.position and len(joint_state.position) == n:
-                self.seek_start_pose[component] = list(joint_state.position)
+                start_pose = list(joint_state.position)
+            elif component in self.current_values:
+                start_pose = list(self.current_values[component])
             else:
-                # No live observation yet -- start exactly at the bag's
-                # first pose so this component skips seeking.
-                self.seek_start_pose[component] = list(self.first_position[component])
+                start_pose = list(self.first_position[component])
 
-            self.current_values[component] = list(self.seek_start_pose[component])
+            self.seek_start_pose[component] = start_pose
+            self.current_values[component] = list(start_pose)
+            self.cursor[component] = 0
 
         max_delta = 0.0
         for component, start_pose in self.seek_start_pose.items():
@@ -110,12 +108,13 @@ class RosbagAdapter(BaseBrainAdapter):
         self.seek_duration = max(self.seek_min_duration, max_delta / max(self.seek_velocity, 1e-6))
         self.seek_start_time = time.monotonic()
         self.state = self.STATE_SEEKING
-        self.terminal.log(f"🐢 [rosbag] seeking to bag start over {self.seek_duration:.2f}s")
+        self.last_done = False
+        self.terminal.log(f"🔁 [rosbag] seeking to bag start over {self.seek_duration:.2f}s")
 
     @staticmethod
     def _smoothstep(t):
         t = max(0.0, min(1.0, t))
-        return t * t * (3.0 - 2.0 * t)  # zero velocity at both ends
+        return t * t * (3.0 - 2.0 * t)
 
     def _step_seek(self):
         elapsed = time.monotonic() - self.seek_start_time
@@ -153,10 +152,13 @@ class RosbagAdapter(BaseBrainAdapter):
 
     # ------------------------------------------------------------------
 
-    def _format_for_policy(self, obs_history: list, get_default: bool) -> dict:
+    def _format_for_policy(self, obs_history: list, inference_option: InferenceOption) -> dict:
         latest_obs = obs_history[-1]
         joints_dict = latest_obs.get("joints", {})
-        self._seed_if_needed(joints_dict)
+
+        if self.state is None or inference_option.restart:
+            self._start_seek(joints_dict)
+
         return {}
 
     def _communicate_with_policy(self, formatted_obs: dict) -> dict:
@@ -165,7 +167,7 @@ class RosbagAdapter(BaseBrainAdapter):
         elif self.state == self.STATE_PLAYING:
             self._step_playback()
         elif self.state == self.STATE_DONE:
-            return {}  # nothing further -- buffer holds last pose
+            return {}
 
         return {"values": {k: list(v) for k, v in self.current_values.items()}}
 

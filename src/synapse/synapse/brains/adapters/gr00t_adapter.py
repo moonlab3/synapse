@@ -1,4 +1,5 @@
 from ..base_brain_adapter import BaseBrainAdapter
+from ..base_brain_adapter import InferenceOption
 import numpy as np
 import os
 import sys
@@ -193,12 +194,12 @@ class GR00TAdapter(BaseBrainAdapter):
             "original_joints": original_joints
         }
 
-    def _format_for_policy(self, obs_history: list, get_default: bool = False) -> dict:
+    def _format_for_policy(self, obs_history: list, inference_option: InferenceOption) -> dict:
         latest_obs = obs_history[-1]
         joints_dict = latest_obs.get("joints", {})
         images_dict = latest_obs.get("images", {})
         
-        if get_default:
+        if inference_option.default_command:
             command = self.default_command
         else:
             raw_command = latest_obs.get("command")

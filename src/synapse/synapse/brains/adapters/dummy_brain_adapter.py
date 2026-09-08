@@ -1,4 +1,5 @@
 from ..base_brain_adapter import BaseBrainAdapter
+from ..base_brain_adapter import InferenceOption
 
 class DummyBrainAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="dummy_brain_adapter", parameter_overrides=None):
@@ -8,7 +9,7 @@ class DummyBrainAdapter(BaseBrainAdapter):
             f"🧠 [{node_name}] initialized. Yielding target control to external ROS 2 applications."
         )
 
-    def _format_for_policy(self, obs_history: list, get_default: bool) -> dict:
+    def _format_for_policy(self, obs_history: list, inference_option: InferenceOption) -> dict:
         # No formatting needed, we aren't querying an AI policy
         return {}
 

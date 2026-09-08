@@ -1,6 +1,7 @@
 import jax
 
 from ..base_brain_adapter import BaseBrainAdapter
+from ..base_brain_adapter import InferenceOption
 from sensor_msgs.msg import JointState
 import jax.numpy as jnp
 import jaxlie
@@ -199,7 +200,7 @@ class ManualAdapter(BaseBrainAdapter):
                 
         return target_joints
 
-    def _format_for_policy(self, obs_history: list, get_default) -> dict:
+    def _format_for_policy(self, obs_history: list, inference_option: InferenceOption) -> dict:
         latest_obs = obs_history[-1]
         joints_dict = latest_obs.get("joints", {})
         images_dict = latest_obs.get("images", {})

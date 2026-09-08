@@ -8,6 +8,7 @@ from collections import deque
 from synapse.utils.terminal_manager import BackgroundTUI
 from concurrent.futures import ThreadPoolExecutor
 from synapse.brains.brain_selector import BrainSelector
+from synapse.brains.base_brain_adapter import InferenceOption
 from synapse.utils.scenario_parser import ScenarioParser
 from synapse.utils.embodiment_parser import EmbodimentParser
 import functools
@@ -153,6 +154,7 @@ class SynapseMainNode(Node):
         self.to_brain = None
         self.last_command = self.last_command_to_show = ""
         self.running_default = True
+        self.restart_requested = False
         self.status = "Idle"
         self.timer = self.create_timer(1.0 / tick_freq, self.tick)
         
@@ -247,6 +249,7 @@ class SynapseMainNode(Node):
                         self.running_brain = self.brain_node_list[idx]
                         self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
                         self.running_default = True
+                        self.restart_requested = True
                 case None:
                     self.to_brain = None
                     pass
@@ -265,10 +268,15 @@ class SynapseMainNode(Node):
         
         if self.inference_future is None and len(self.obs_buffer) > 0:
             historical_obs = list(self.obs_buffer)
+            inference_option = InferenceOption(
+                default_command = self.running_default,
+                restart = self.restart_requested,
+            )
+            self.restart_requested = False
             self.inference_future = self.inference_executor.submit(
                 self.brain_adapters[self.running_brain].infer, 
                 historical_obs, 
-                self.running_default
+                inference_option
                 )
 
         action, status = self.action_buffer.pop_next_action()

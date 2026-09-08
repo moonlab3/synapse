@@ -1,5 +1,11 @@
 from abc import ABC, abstractmethod
 from rclpy.node import Node
+from dataclasses import dataclass
+
+@dataclass
+class InferenceOption:
+    default_command: bool = True
+    restart: bool = False
 
 class BaseBrainAdapter(ABC, Node):
     def __init__(self, terminal, node_name=None, parameter_overrides=None):
@@ -12,21 +18,16 @@ class BaseBrainAdapter(ABC, Node):
         self.embodiment_name = self.get_parameter('embodiment_name').value
         self.terminal = terminal
 
-    def infer(self, obs_history: list, get_default: False) -> list:
+    def infer(self, obs_history: list, inference_option: InferenceOption = None) -> list:
         if not obs_history:
             return []
 
-        # 1. Convert observations into model-specific formats (and apply FK if needed)
-        formatted_obs = self._format_for_policy(obs_history, get_default)
-        # self.terminal.wait_debug("after format policy")
-        
-        # 2. Communicate with AI Policy (ZMQ for RL/VLA, bypass for Manual)
+        if inference_option is None:
+            inference_option = InferenceOption()
+
+        formatted_obs = self._format_for_policy(obs_history, inference_option)
         raw_action = self._communicate_with_policy(formatted_obs)
-        # self.terminal.wait_debug("after communicate policy")
-        
-        # 3. Format action for muscle wrapper (and apply IK if needed)
         action_chunk = self._format_for_muscle(raw_action)
-        # self.terminal.wait_debug("after format muscle")
 
         # if action_chunk and isinstance(action_chunk[0], dict):
         #     debug_strings = []
@@ -42,7 +43,7 @@ class BaseBrainAdapter(ABC, Node):
         return action_chunk
 
     @abstractmethod
-    def _format_for_policy(self, obs_history: list):
+    def _format_for_policy(self, obs_history: list, inference_option: InferenceOption):
         """Extracts history, applies FK if needed, formats for policy/ZMQ."""
         pass
 

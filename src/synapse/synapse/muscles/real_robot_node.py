@@ -12,8 +12,8 @@ from synapse.utils.embodiment_parser import EmbodimentParser
 # Only manipulators go through joint_trajectory_controller here; end-effectors
 # (hands) would need their own real driver, not handled by this bridge yet.
 CONTROLLER_TOPICS = {
-    'left_arm': '/L_xarm7_traj_controller/joint_trajectory',
-    'right_arm': '/R_xarm7_traj_controller/joint_trajectory',
+    'left_arm': '/left_xarm7_traj_controller/joint_trajectory',
+    'right_arm': '/right_xarm7_traj_controller/joint_trajectory',
 }
 
 
@@ -35,6 +35,8 @@ class RealRobotNode(Node):
 
         parser = EmbodimentParser(embodiment_name)
         self.robots_cfg = parser.get_robots()  # flattened: left_arm, right_arm, left_hand, right_hand, ...
+
+        self.last_known_position = {name: None for name in self.robots_cfg}
 
         # --- Command path: Synapse target -> per-arm JointTrajectory ---
         self.traj_pubs = {}
@@ -74,6 +76,12 @@ class RealRobotNode(Node):
 
         name_to_pos = dict(zip(msg.name, msg.position))
 
+        for component_name, cfg in self.robots_cfg.items():
+            joint_names = cfg.get('joint_names', [])
+            positions = [name_to_pos[jn] for jn in joint_names if jn in name_to_pos]
+            if len(positions) == len(joint_names) and joint_names:
+                self.last_known_position[component_name] = positions
+
         for component_name, pub in self.traj_pubs.items():
             joint_names = self.robots_cfg[component_name].get('joint_names', [])
 
@@ -110,7 +118,25 @@ class RealRobotNode(Node):
 
     def _feedback_callback(self, msg: JointState):
         """Pass the broadcaster's combined feedback through under Synapse's topic name."""
-        self.feedback_pub.publish(msg)
+
+        combined = JointState()
+        combined.header = msg.header
+        combined.name = list(msg.name)
+        combined.position = list(msg.position)
+
+        for component_name, cfg in self.robots_cfg.items():
+            if component_name in CONTROLLER_TOPICS:
+                continue
+            joint_names = cfg.get('joint_names', [])
+            positions = self.last_known_position.get(component_name)
+            if positions is None or len(positions) != len(joint_names):
+                positions = [0.0] * len(joint_names)
+
+            combined.name.extend(joint_names)
+            combined.position.extend(positions)
+
+        # self.feedback_pub.publish(msg)
+        self.feedback_pub.publish(combined)
 
     def synapse_command_callback(self, msg: String):
         """Receives commands from synapse_bt_node (e.g., start, stop)"""

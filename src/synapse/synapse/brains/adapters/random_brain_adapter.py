@@ -1,6 +1,7 @@
 import numpy as np
 from sensor_msgs.msg import JointState
 from ..base_brain_adapter import BaseBrainAdapter
+from ..base_brain_adapter import InferenceOption
 from synapse.utils.embodiment_parser import EmbodimentParser
 
 
@@ -15,7 +16,7 @@ class RandomBrainAdapter(BaseBrainAdapter):
             full = f"{self.get_name()}.{name}"
             return self.get_parameter(full).value if self.has_parameter(full) else default
 
-        self.step_size = _p('step_size', 0.01)       # radians per micro-step
+        self.step_size = _p('step_size', 0.005)       # radians per micro-step
         self.flip_prob = _p('flip_prob', 0.05)         # chance to reverse direction each step
         self.chunk_length = _p('chunk_length', 1)     # micro-steps produced per inference call
         self.bound_radius = _p('bound_radius', 0.3)    # soft +/- range around start pose (radians)
@@ -45,7 +46,7 @@ class RandomBrainAdapter(BaseBrainAdapter):
         self.direction[name] = np.random.choice([-1.0, 1.0], size=n).astype(np.float32)
         self._seeded.add(name)
 
-    def _format_for_policy(self, obs_history: list, get_default: bool) -> dict:
+    def _format_for_policy(self, obs_history: list, inference_option: InferenceOption) -> dict:
         latest_obs = obs_history[-1]
         joints_dict = latest_obs.get("joints", {})
 

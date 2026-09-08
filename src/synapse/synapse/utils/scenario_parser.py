@@ -1,6 +1,7 @@
 import time
 import yaml
 import py_trees
+from synapse.brains.base_brain_adapter import InferenceOption
 
 class BaseCheck:
     def __init__(self, cfg: dict, node_ref):
@@ -229,8 +230,12 @@ class RunAction(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.RUNNING
 
         historical_obs = list(self.node.obs_buffer)
+        inference_option = InferenceOption(
+            default_command=self.node.running_default,
+            restart=self.node.restart_requested,
+        )
         self.node.inference_future = self.node.inference_executor.submit(
-            adapter.infer, historical_obs, self.node.running_default
+            adapter.infer, historical_obs, inference_option
         )
         return py_trees.common.Status.RUNNING
 
