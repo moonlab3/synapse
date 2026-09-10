@@ -3,12 +3,13 @@ from std_msgs.msg import String
 from abc import ABC, abstractmethod
 
 class BaseMuscle(ABC, Node):
-    def __init__(self, node_name):
-        super().__init__(node_name)
-        """
-        Takes the parent ROS 2 node so it can create publishers and loggers 
-        without spinning up its own conflicting ROS context.
-        """
+    def __init__(self, node_name=None, parameter_overrides=None):
+        super().__init__(
+            node_name,
+            parameter_overrides=parameter_overrides,
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+        )
         # Every muscle must have a system command publisher (e-stop, quit)
         self.synapse_command_sub = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
 

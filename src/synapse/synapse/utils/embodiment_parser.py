@@ -2,10 +2,18 @@ import yaml
 import os
 from pathlib import Path
 
-class EmbodimentParser:
-    # Centralized parser for the Synapse architecture. 
-    # Supplies hardware topology to both Brain Adapters and Muscle Nodes.
+DEFAULT_MSG_TYPE = 'JointState'
 
+class ResolvedTopic:
+    __slots__ = ('topic', 'msg_type')
+    def __init__(self, topic: str, msg_type: str = DEFAULT_MSG_TYPE):
+        self.topic = topic
+        self.msg_type = msg_type
+
+    def __repr__(self):
+        return f"ResolvedTopic(topic={self.topic!r}, msg_type={self.msg_type!r})"
+
+class EmbodimentParser:
     def __init__(self, embodiment_name: str):
         self.embodiment_name = embodiment_name
         
@@ -33,7 +41,6 @@ class EmbodimentParser:
                 f"❌ Embodiment '{self.embodiment_name}' not found in {self.config_path}! "
                 f"Available options: {available}"
             )
-        
         return self.full_config[self.embodiment_name]
 
     def get_config(self) -> dict:
@@ -69,7 +76,6 @@ class EmbodimentParser:
             else:
                 flattened[name] = cfg
         self._validate_joint_indices(flattened)
-
         return flattened
 
     def _validate_joint_indices(self, flattened: dict):
@@ -87,7 +93,70 @@ class EmbodimentParser:
                     f"❌ '{name}': joint_names has {len(joint_names)}, joint_indices has {len(joint_indices)}"
                 )
         
-
     def get_total_dofs(self) -> int:
         robots = self.get_robots()
         return sum(len(robot.get('joint_names', [])) for robot in robots.values())
+
+    def resolve_target(self, component_cfg: dict, muscle_option: str) -> ResolvedTopic | None:
+        """
+        Resolves one component's 'target' field for a specific muscle_option.
+
+        Accepted shapes for component_cfg['target']:
+          - absent / None                 -> no target, ever. Returns None.
+          - "topic/string"                -> same topic for every muscle_option, JointState assumed.
+          - { MUSCLE_OPTION: value, ... } -> per-backend lookup, where `value` is:
+                - None                    -> explicitly not wired for this backend. Returns None.
+                - "topic/string"          -> JointState assumed.
+                - {topic, msg_type}       -> explicit message type (e.g. JointTrajectory).
+
+        Returns None whenever there's nothing to wire up. Callers MUST skip
+        creating a publisher/subscription in that case -- never guess a
+        fallback topic name.
+        """
+        raw = component_cfg.get('target')
+        if raw is None:
+            return None
+
+        if isinstance(raw, str):
+            return ResolvedTopic(topic=raw)
+
+        if isinstance(raw, dict):
+            # A bare {topic, msg_type} dict shared across all muscle_options
+            # (no muscle_option keys present) vs. a per-muscle_option map.
+            if 'topic' in raw and muscle_option.upper() not in raw:
+                return ResolvedTopic(topic=raw['topic'], msg_type=raw.get('msg_type', DEFAULT_MSG_TYPE))
+
+            entry = raw.get(muscle_option.upper())
+            if entry is None:
+                return None
+            if isinstance(entry, str):
+                return ResolvedTopic(topic=entry)
+            if isinstance(entry, dict):
+                if 'topic' not in entry:
+                    raise ValueError(
+                        f"❌ target entry for muscle_option '{muscle_option}' missing 'topic': {entry}"
+                    )
+                return ResolvedTopic(topic=entry['topic'], msg_type=entry.get('msg_type', DEFAULT_MSG_TYPE))
+            raise ValueError(f"❌ Unrecognized target entry shape: {entry}")
+
+        raise ValueError(f"❌ Unrecognized 'target' shape for component: {raw}")
+
+    def resolve_states(self, group_cfg: dict, group_name: str) -> str | None:
+        """
+        Resolves a group's 'states' topic.
+          - key absent               -> conventional default: /synapse/joint_states/{group_name}
+          - key present but null     -> explicitly no states topic; skip wiring it.
+          - key present as a string  -> use as-is.
+        Independent of resolve_target -- a group can skip states while its
+        components still have targets, or vice versa.
+        """
+        if 'states' not in group_cfg:
+            return f'/synapse/joint_states/{group_name}'
+        return group_cfg['states']
+
+    def get_component_targets(self, muscle_option: str) -> dict:
+        """component_name -> ResolvedTopic | None, for the given muscle_option."""
+        return {
+            name: self.resolve_target(cfg, muscle_option)
+            for name, cfg in self.get_robots().items()
+        }

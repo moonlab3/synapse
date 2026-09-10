@@ -92,44 +92,60 @@ class IsaacNode(Node):
         articulation_groups = parser.get_articulations()  # new nested schema only
         flat_robots = parser.get_robots()                  # flattened, all components
 
-        self.groups = {}
-        grouped_component_names = set()
+        self.component_group = {}
+        for group_name, group in self.groups.items():
+            for component_name in group['components']:
+                self.component_group[component_name] = group_name
 
-        for group_name, group_cfg in articulation_groups.items():
-            self.groups[group_name] = {
-                'prim_path': group_cfg.get('prim_path'),
-                'states': group_cfg.get('states', f'/synapse/joint_states/{group_name}'),
-                'target': group_cfg.get('target', f'/synapse/target/{group_name}'),
-                'components': group_cfg.get('components', {}),
-            }
-            grouped_component_names.update(self.groups[group_name]['components'].keys())
-
-        for name, cfg in flat_robots.items():
-            if name in grouped_component_names:
-                continue
-            self.groups[name] = {
-                'prim_path': cfg.get('prim_path'),
-                'states': cfg.get('states', f'/synapse/joint_states/{name}'),
-                'target': cfg.get('target', f'/synapse/target/{name}'),
-                'components': {name: cfg},
-            }
-
-        self.pub_joint_states = {}
+        self.component_targets = parser.get_component_targets('ISAAC')
         self.sub_targets = {}
-        self.articulations = {}
-        self.target_joints = {}
-        self.initial_positions = {}
-        self.joint_names = {}
-        self.joint_names_config = {}
-        self.num_dofs = {}
-        _log_robot_names = ""
+        for component_name, resolved in self.component_targets.items():
+            if resolved is None:
+                continue
+            joint_indices = flat_robots[component_name].get('joint_indices')
+            self.sub_targets[component_name] = self.create_subscription(
+                JointState, resolved.topic,
+                functools.partial(self.target_callback, component_name=component_name, joint_indices=joint_indices),
+                10
+            )
+        # self.groups = {}
+        # grouped_component_names = set()
+
+        # for group_name, group_cfg in articulation_groups.items():
+        #     self.groups[group_name] = {
+        #         'prim_path': group_cfg.get('prim_path'),
+        #         'states': group_cfg.get('states', f'/synapse/joint_states/{group_name}'),
+        #         'target': group_cfg.get('target', f'/synapse/target/{group_name}'),
+        #         'components': group_cfg.get('components', {}),
+        #     }
+        #     grouped_component_names.update(self.groups[group_name]['components'].keys())
+
+        # for name, cfg in flat_robots.items():
+        #     if name in grouped_component_names:
+        #         continue
+        #     self.groups[name] = {
+        #         'prim_path': cfg.get('prim_path'),
+        #         'states': cfg.get('states', f'/synapse/joint_states/{name}'),
+        #         'target': cfg.get('target', f'/synapse/target/{name}'),
+        #         'components': {name: cfg},
+        #     }
+
+        # self.pub_joint_states = {}
+        # self.sub_targets = {}
+        # self.articulations = {}
+        # self.target_joints = {}
+        # self.initial_positions = {}
+        # self.joint_names = {}
+        # self.joint_names_config = {}
+        # self.num_dofs = {}
+        # _log_robot_names = ""
 
         for group_name, group in self.groups.items():
             self.pub_joint_states[group_name] = self.create_publisher(JointState, group['states'], 10)
-            self.sub_targets[group_name] = self.create_subscription(
-                JointState, group['target'],
-                functools.partial(self.target_callback, group_name=group_name), 10
-            )
+            # self.sub_targets[group_name] = self.create_subscription(
+            #     JointState, group['target'],
+            #     functools.partial(self.target_callback, group_name=group_name), 10
+            # )
             _log_robot_names += f"{group_name}[{', '.join(group['components'].keys())}], "
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
@@ -230,21 +246,28 @@ class IsaacNode(Node):
         # LOADING CAMERA LOADING CAMERA
 
         simulation_app.update()
-    
-    def target_callback(self, msg: JointState, group_name: str):
-        if msg.position and self.reset_process >= 100:
-            if msg.name:
-                for joint_name, joint_pos in zip(msg.name, msg.position):
-                    if joint_name in self.joint_names[group_name]:
-                        sim_idx = self.joint_names[group_name].index(joint_name)
-                        self.target_joints[group_name][sim_idx] = joint_pos
-            else:
-                self.get_logger().info("no msg name")
-                copy_len = min(len(msg.position), len(self.target_joints[group_name]))
-                self.target_joints[group_name][:copy_len] = msg.position[:copy_len]
+    def target_callback(self, msg: JointState, component_name: str, joint_indices: list):
+        if not msg.position or self.reset_process < 100 or not joint_indices:
+            return
+        group_name = self.component_group[component_name]
+        n = min(len(msg.position), len(joint_indices))
+        for i in range(n):
+            self.target_joints[group_name][joint_indices[i]] = msg.position[i] 
 
-                if len(msg.position) == 8 and len(self.target_joints[group_name]) == 9:
-                    self.target_joints[group_name][-1] = msg.position[-1]
+    # def target_callback(self, msg: JointState, group_name: str):
+    #     if msg.position and self.reset_process >= 100:
+    #         if msg.name:
+    #             for joint_name, joint_pos in zip(msg.name, msg.position):
+    #                 if joint_name in self.joint_names[group_name]:
+    #                     sim_idx = self.joint_names[group_name].index(joint_name)
+    #                     self.target_joints[group_name][sim_idx] = joint_pos
+    #         else:
+    #             self.get_logger().info("no msg name")
+    #             copy_len = min(len(msg.position), len(self.target_joints[group_name]))
+    #             self.target_joints[group_name][:copy_len] = msg.position[:copy_len]
+
+    #             if len(msg.position) == 8 and len(self.target_joints[group_name]) == 9:
+    #                 self.target_joints[group_name][-1] = msg.position[-1]
 
     def spin_and_step(self):
         while simulation_app.is_running():

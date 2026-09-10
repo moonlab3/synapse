@@ -18,6 +18,10 @@ class BaseBrainAdapter(ABC, Node):
         self.embodiment_name = self.get_parameter('embodiment_name').value
         self.terminal = terminal
 
+        tick_freq = self.get_parameter('bt_tick_frequency_hz').value \
+            if self.has_parameter('bt_tick_frequency_hz') else 50
+        self.chunk_dt = 1.0 / tick_freq
+
     def infer(self, obs_history: list, inference_option: InferenceOption = None) -> list:
         if not obs_history:
             return []

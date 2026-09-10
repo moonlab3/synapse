@@ -8,15 +8,16 @@ default:
   publish_rate_hz: 100
 
 fairino:
-  # basic
   scenario_filename: "scn_v2.yaml"
   embodiment_name: "SINGLE_FR5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  muscle_option: "ISAAC"
+  # muscle_option: "ISAAC"
+  muscle_option: "DUMMY"
 
   brain_registry:
     - "manual_adapter:MANUAL"
+    - "random_brain_adapter:RANDOM"
   publish_rate_hz: 100
 
 bottle_opener:
@@ -78,7 +79,8 @@ dual_arm:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
 
-  muscle_option: "ISAAC"
+  muscle_option: "DUMMY"
+  # muscle_option: "ISAAC"
   brain_registry:
     - "manual_adapter:MANUAL"
   publish_rate_hz: 100
@@ -97,17 +99,6 @@ gr00t_franka_sim:
     policy_ip: "172.16.6.101"
     policy_port: "8888"
     default_command: "pick up the blue box"
-  publish_rate_hz: 100
-
-panda_v5:
-  scenario_filename: "scn_v2.yaml"
-  embodiment_name: "PANDA_V5"
-  bt_tick_frequency_hz: 50
-  obs_buffer_window_size: 20
-
-  muscle_option: "ISAAC"
-  brain_registry:
-    - "manual_adapter:MANUAL"
   publish_rate_hz: 100
 
 multi_brain_test:
@@ -149,22 +140,3 @@ fr5_real:
 
   publish_rate_hz: 100
   
-# rviz_test:
-#   scenario_filename: "scn_v2.yaml"
-#   embodiment_name: "SINGLE_FR5"
-#   bt_tick_frequency_hz: 50
-#   obs_buffer_window_size: 20
-
-#   muscle_option: "RVIZ"
-
-#   brain_registry:
-#     - "manual_adapter:MANUAL"
-#     - "rosbag_adapter:ROSBAG"
-  
-#   bag_path: "bag.rosbag"
-
-#   vla_left:
-#     policy_ip: "172.16.6.101"
-#     policy_port: "8888"
-#     default_command: "pick up the blue box"
-#   publish_rate_hz: 100

@@ -5,7 +5,6 @@ SINGLE_FR5:
     fr5:
       prim_path: "/World/fairino5_v6"
       states: "/synapse/joint_states/fr5"
-      target: "/joint_states"
       yourdfpy_description: false
       urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
       components:
@@ -15,6 +14,9 @@ SINGLE_FR5:
           joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
           joint_indices: [0, 1, 2, 3, 4, 5]
           eef_frame: "wrist3_link"
+          target:
+            ISAAC: "/synapse/target"
+            DUMMY: "/syanapse/target"
 
 DUAL_XARM_V5:
   # YUMI like mounting setting
@@ -27,25 +29,37 @@ DUAL_XARM_V5:
   robots:
     dual_xarm_unit:                     # one physical articulation
       prim_path: "/Dual_Xarm7_v5_sense"
-      target: "/synapse/target/dual_xarm_unit"
-      states: "/synapse/joint_states/dual_xarm_unit"
       urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
       yourdfpy_description: false
+      states: "/synapse/joint_states/dual_xarm_unit"
+
       components:
         right_arm:
           type: "manipulator"
           eef_frame: "xarm_right_link_eef"
           name: "xarm7_v5_sense_right"
           joint_names: ["right_joint1", "right_joint2", "right_joint3", "right_joint4", "right_joint5", "right_joint6", "right_joint7"]
-          # joint_names: ["R_joint1", "R_joint2", "R_joint3", "R_joint4", "R_joint5", "R_joint6", "R_joint7"]
           joint_indices: [0, 1, 2, 3, 4, 5, 6]
+          target:
+            ISAAC: "/synapse/target/right_arm"
+            DUMMY: "/synapse/target/right_arm"
+            REAL_ROBOT:
+              topic: "/right_xarm7_traj_controller/joint_trajectory"
+              msg_type: "JointTrajectory"
+
         left_arm:
           type: "manipulator"
           eef_frame: "xarm_left_link_eef"
           name: "xarm7_v5_sense_left"
           joint_names: ["left_joint1", "left_joint2", "left_joint3", "left_joint4", "left_joint5", "left_joint6", "left_joint7"]
-          # joint_names: ["L_joint1", "L_joint2", "L_joint3", "L_joint4", "L_joint5", "L_joint6", "L_joint7"]
           joint_indices: [7, 8, 9, 10, 11, 12, 13]
+          target:
+            ISAAC: "/synapse/target/left_arm"
+            DUMMY: "/synapse/target/left_arm"
+            REAL_ROBOT:
+              topic: "/left_xarm7_traj_controller/joint_trajectory"
+              msg_type: "JointTrajectory"
+
         right_hand:
           type: "end-effector"
           name: "v5_sense_right_with_collider"
@@ -55,6 +69,10 @@ DUAL_XARM_V5:
                 "right_middle_joint_0", "right_middle_joint_1", "right_middle_joint_2", "right_middle_joint_3",
                 "right_ring_joint_0", "right_ring_joint_1", "right_ring_joint_2", "right_ring_joint_3"]
           joint_indices: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+          target:
+            ISAAC: "/synapse/target/right_hand"
+            DUMMY: "/synapse/target/right_hand"
+            REAL_ROBOT: null
         left_hand:
           type: "end-effector"
           name: "v5_sense_left_with_collider"
@@ -64,6 +82,10 @@ DUAL_XARM_V5:
                         "left_joint_8_0", "left_joint_9_0", "left_joint_10_0", "left_joint_11_0",
                         "left_joint_12_0", "left_joint_13_0", "left_joint_14_0", "left_joint_15_0"]
           joint_indices: [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]
+          target:
+            ISAAC: "/synapse/target/left_hand"
+            DUMMY: "/synapse/target/left_hand"
+            REAL_ROBOT: null
 
 DUAL_PANDA:
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
@@ -74,7 +96,6 @@ DUAL_PANDA:
       yourdfpy_description: true
       prim_path: "/World/franka_left"
       states: "/synapse/joint_states/panda_left"
-      target: "/synapse/target/panda_left"
       components:
         left_arm:
           type: "manipulator"
@@ -82,13 +103,14 @@ DUAL_PANDA:
           eef_frame: "panda_hand"
           joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
           joint_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+          target: 
+            ISAAC: "/synapse/target/panda_left"
     panda_right:
       description_name: "panda_description"
       urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
       yourdfpy_description: true
       prim_path: "/World/franka_right"
       states: "/synapse/joint_states/panda_right"
-      target: "/synapse/target/panda_right"
       components:
         right_arm:
           type: "manipulator"
@@ -96,6 +118,8 @@ DUAL_PANDA:
           eef_frame: "panda_hand"
           joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
           joint_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+          target: 
+            ISAAC: "/synapse/target/panda_right"
 
 SINGLE_PANDA_CAM:
   table_height: 0.85
@@ -119,24 +143,6 @@ SINGLE_PANDA_CAM:
       clipping_near_distance: 0.01
       clipping_far_distance: 10.0
 
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
-  robots:
-    panda_arm:
-      yourdfpy_description: true
-      description_name: "panda_description"
-      prim_path: "/World/franka_set/Franka/panda"
-      states: "/synapse/joint_states/panda"
-      target: "/synapse/target/panda"
-      components:
-        arm:
-          name: "panda"
-          type: "manipulator"
-          eef_frame: "panda_hand"
-          joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
-
-
-
-PANDA_V5:
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
   robots:
     panda_arm:
