@@ -12,8 +12,8 @@ fairino:
   embodiment_name: "SINGLE_FR5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  # muscle_option: "ISAAC"
-  muscle_option: "DUMMY"
+  muscle_option: "ISAAC"
+  # muscle_option: "DUMMY"
 
   brain_registry:
     - "manual_adapter:MANUAL"
@@ -79,10 +79,11 @@ dual_arm:
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
 
-  muscle_option: "DUMMY"
-  # muscle_option: "ISAAC"
+  # muscle_option: "DUMMY"
+  muscle_option: "ISAAC"
   brain_registry:
     - "manual_adapter:MANUAL"
+    - "random_brain_adapter:RANDOM"
   publish_rate_hz: 100
 
 gr00t_franka_sim:

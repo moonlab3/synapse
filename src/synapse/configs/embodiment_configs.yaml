@@ -1,6 +1,8 @@
 SINGLE_FR5:
   table_height: 0.85
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fr5.usd"
+  manipulator_step_size: 0.1   # for manual
+  eef_step_size: 0.01           # for manual
   robots:
     fr5:
       prim_path: "/World/fairino5_v6"
@@ -24,7 +26,7 @@ DUAL_XARM_V5:
   # right arm. pitch 30, yaw 30 := tilt 41.4, rotate 40.9
   table_height: 0.85
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_xarm7_v5_sense.usd"
-  manipulator_step_size: 0.005   # for manual
+  manipulator_step_size: 0.1   # for manual
   eef_step_size: 0.01           # for manual
   robots:
     dual_xarm_unit:                     # one physical articulation
@@ -89,6 +91,8 @@ DUAL_XARM_V5:
 
 DUAL_PANDA:
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
+  manipulator_step_size: 0.1   # for manual
+  eef_step_size: 0.01           # for manual
   robots:
     panda_left:
       description_name: "panda_description"

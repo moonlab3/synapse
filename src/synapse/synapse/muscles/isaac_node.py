@@ -89,15 +89,16 @@ class IsaacNode(Node):
             self.camera_publishers[name] = self.create_publisher(Image, topic, 10)
         self.cameras = {}
 
-        articulation_groups = parser.get_articulations()  # new nested schema only
+        self.articulation_groups = parser.get_articulations()  # new nested schema only
         flat_robots = parser.get_robots()                  # flattened, all components
 
         self.component_group = {}
-        for group_name, group in self.groups.items():
+        for group_name, group in self.articulation_groups.items():
             for component_name in group['components']:
                 self.component_group[component_name] = group_name
 
         self.component_targets = parser.get_component_targets('ISAAC')
+        self.pub_joint_states = {}
         self.sub_targets = {}
         for component_name, resolved in self.component_targets.items():
             if resolved is None:
@@ -108,44 +109,15 @@ class IsaacNode(Node):
                 functools.partial(self.target_callback, component_name=component_name, joint_indices=joint_indices),
                 10
             )
-        # self.groups = {}
-        # grouped_component_names = set()
 
-        # for group_name, group_cfg in articulation_groups.items():
-        #     self.groups[group_name] = {
-        #         'prim_path': group_cfg.get('prim_path'),
-        #         'states': group_cfg.get('states', f'/synapse/joint_states/{group_name}'),
-        #         'target': group_cfg.get('target', f'/synapse/target/{group_name}'),
-        #         'components': group_cfg.get('components', {}),
-        #     }
-        #     grouped_component_names.update(self.groups[group_name]['components'].keys())
+        self.articulations = {}
+        self.target_joints = {}
+        self.initial_positions = {}
+        self.joint_names = {}
+        _log_robot_names = ""
 
-        # for name, cfg in flat_robots.items():
-        #     if name in grouped_component_names:
-        #         continue
-        #     self.groups[name] = {
-        #         'prim_path': cfg.get('prim_path'),
-        #         'states': cfg.get('states', f'/synapse/joint_states/{name}'),
-        #         'target': cfg.get('target', f'/synapse/target/{name}'),
-        #         'components': {name: cfg},
-        #     }
-
-        # self.pub_joint_states = {}
-        # self.sub_targets = {}
-        # self.articulations = {}
-        # self.target_joints = {}
-        # self.initial_positions = {}
-        # self.joint_names = {}
-        # self.joint_names_config = {}
-        # self.num_dofs = {}
-        # _log_robot_names = ""
-
-        for group_name, group in self.groups.items():
+        for group_name, group in self.articulation_groups.items():
             self.pub_joint_states[group_name] = self.create_publisher(JointState, group['states'], 10)
-            # self.sub_targets[group_name] = self.create_subscription(
-            #     JointState, group['target'],
-            #     functools.partial(self.target_callback, group_name=group_name), 10
-            # )
             _log_robot_names += f"{group_name}[{', '.join(group['components'].keys())}], "
 
         self.sub_synapse_command = self.create_subscription(String, '/synapse/command', self.synapse_command_callback, 10)
@@ -190,7 +162,7 @@ class IsaacNode(Node):
         self.world._physics_context = PhysicsContext(prim_path="/World/PhysicsScene")
 
         self.get_logger().info("Articulation Initializing =================")
-        for group_name, group in self.groups.items():
+        for group_name, group in self.articulation_groups.items():
             prim_path = group['prim_path']
 
             if not self.world.scene.object_exists(group_name):
@@ -253,7 +225,6 @@ class IsaacNode(Node):
         n = min(len(msg.position), len(joint_indices))
         for i in range(n):
             self.target_joints[group_name][joint_indices[i]] = msg.position[i] 
-
     # def target_callback(self, msg: JointState, group_name: str):
     #     if msg.position and self.reset_process >= 100:
     #         if msg.name:
