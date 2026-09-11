@@ -65,8 +65,8 @@ class ManualAdapter(BaseBrainAdapter):
         self.terminal = terminal
 
         parser = EmbodimentParser(self.embodiment_name)
-        self.manipulator_step_size = parser.get_config().get('manipulator_step_size')
-        self.eef_step_size = parser.get_config().get('eef_step_size')
+        self.manipulator_step_size = parser.get_config().get('manipulator_step_size', 0.1)
+        self.eef_step_size = parser.get_config().get('eef_step_size', 0.01)
         self.robots_cfg = parser.get_robots()
 
         dummy_se3 = jaxlie.SE3.identity()

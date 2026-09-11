@@ -127,25 +127,25 @@ DUAL_PANDA:
 
 SINGLE_PANDA_CAM:
   table_height: 0.85
-  cameras:
-    wrist:
-      topic: "/synapse/camera/wrist/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
-      prim_path: "/World/franka_set/Franka/panda/panda_hand/wrist_cam"
-      focal_length: 1.5
-      orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
-      translation: [-0.1, 0.0, -0.05]
-      width: 256
-      height: 256
-      frequency: 20
-    quarter_view:
-      topic: "/synapse/camera/quarter_view/image_raw"
-      prim_path: "/World/franka_set/Azure/Camera"
-      focal_length: 1.5
-      width: 256
-      height: 256
-      frequency: 20
-      clipping_near_distance: 0.01
-      clipping_far_distance: 10.0
+  # cameras:
+  #   wrist:
+  #     topic: "/synapse/camera/wrist/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
+  #     prim_path: "/World/franka_set/Franka/panda/panda_hand/wrist_cam"
+  #     focal_length: 1.5
+  #     orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
+  #     translation: [-0.1, 0.0, -0.05]
+  #     width: 256
+  #     height: 256
+  #     frequency: 20
+  #   quarter_view:
+  #     topic: "/synapse/camera/quarter_view/image_raw"
+  #     prim_path: "/World/franka_set/Azure/Camera"
+  #     focal_length: 1.5
+  #     width: 256
+  #     height: 256
+  #     frequency: 20
+  #     clipping_near_distance: 0.01
+  #     clipping_far_distance: 10.0
 
   usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
   robots:
@@ -154,10 +154,12 @@ SINGLE_PANDA_CAM:
       description_name: "panda_description"
       prim_path: "/World/franka_set/Franka/panda"
       states: "/synapse/joint_states/panda"
-      target: "/synapse/target/panda"
       components:
         arm:
+          target:
+            ISAAC: "/synapse/target/panda"
           name: "panda"
           type: "manipulator"
           eef_frame: "panda_hand"
           joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
+          joint_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8]
