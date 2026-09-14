@@ -35,7 +35,7 @@ bottle_opener:
     - "rosbag_player:ROSBAG"
 
   rosbag_player:
-    bag_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/snack1.json"
+    bag_filename: "snack1.json"
     topic_component_map:
       - "/xarm7_left_controller/commands:left_arm"
       - "/xarm7_right_controller/commands:right_arm"
@@ -62,7 +62,7 @@ bottle_dummy:
     - "rosbag_player:ROSBAG"
 
   rosbag_player:
-    bag_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/snack1.json"
+    bag_filename: "snack1.json"
     topic_component_map:
       - "/xarm7_left_controller/commands:left_arm"
       - "/xarm7_right_controller/commands:right_arm"

@@ -18,6 +18,7 @@ logger.disable("jaxls")
 logger.disable("pyroki")
 import yourdfpy
 from robot_descriptions.loaders.yourdfpy import load_robot_description
+from synapse.utils.assets_pathfinder import assets_get_path
 
 # ==========================================
 # ⚡ GR00T Policy Client Setup
@@ -107,7 +108,7 @@ class GR00TAdapter(BaseBrainAdapter):
                 if cfg.get('yourdfpy_description'):
                     urdf = load_robot_description(cfg.get('description_name'))
                 else:
-                    urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
+                    urdf = yourdfpy.URDF.load(assets_get_path(cfg.get('urdf_filename')))
                 
                 self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
                 self.eef_frame[name] = cfg.get('eef_frame')

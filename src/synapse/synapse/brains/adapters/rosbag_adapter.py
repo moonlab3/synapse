@@ -8,6 +8,7 @@ from sensor_msgs.msg import JointState
 from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 from synapse.utils.embodiment_parser import EmbodimentParser
+from synapse.utils.assets_pathfinder import assets_get_path
 
 class RosbagAdapter(BaseBrainAdapter):
 
@@ -22,7 +23,6 @@ class RosbagAdapter(BaseBrainAdapter):
             full = f"{self.get_name()}.{name}"
             return self.get_parameter(full).value if self.has_parameter(full) else default
 
-        self.bag_path = _p('bag_path', None)
         raw_map = _p('topic_component_map', [])
         self.seek_velocity = _p('seek_velocity', 0.2)
         self.seek_min_duration = _p('seek_min_duration', 0.5)
@@ -47,6 +47,7 @@ class RosbagAdapter(BaseBrainAdapter):
         self.playback_start_time = None
         self.last_done = False
 
+        self.bag_path = assets_get_path(_p('bag_filename', None))
         self._load_bag()
         self.terminal.log(
             f"🎞️ [{node_name}] loaded bag '{self.bag_path}' "

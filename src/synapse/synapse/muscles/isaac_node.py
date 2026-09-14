@@ -23,7 +23,6 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
     for path_var in ['LD_LIBRARY_PATH', 'PYTHONPATH']:
         if path_var in os.environ:
             old_path = os.environ[path_var]
-            # Removed 'synapse_ws' from the deletion filter so it survives the reboot
             new_path = ':'.join([p for p in old_path.split(':') if 'ros/jazzy' not in p and 'python3.12' not in p])
             os.environ[path_var] = new_path
 
@@ -38,9 +37,6 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
     print("🔄 System ROS 2 purged. Injecting Isaac Sim internal ROS 2 libs and rebooting process...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-# Removed 'synapse_ws' from the sys.path deletion filter here as well
-# sys.path = [p for p in sys.path if 'ros/jazzy' not in p and 'python3.12' not in p]
-# ---------------------------------------------------
 
 if "--disable" not in sys.argv:
     sys.argv.extend(["--disable", "omni.isaac.ros2_bridge", "--enable", "isaacsim.ros2.bridge"])
@@ -66,6 +62,7 @@ from omni.isaac.sensor import Camera
 import omni.usd
 import functools
 import torch
+from synapse.utils.assets_pathfinder import assets_get_path
 
 class IsaacNode(Node):
     def __init__(self, node_name="isaac_node", parameter_overrides=None):
@@ -80,7 +77,7 @@ class IsaacNode(Node):
         embodiment_name = self.get_parameter('embodiment_name').value
 
         parser = EmbodimentParser(embodiment_name)
-        self.usd_path = parser.get_config().get('usd_path')
+        self.usd_path = assets_get_path(parser.get_config().get('usd_filename'))
         self.camera_cfg = parser.get_cameras()
 
         self.camera_publishers = {}
@@ -225,20 +222,6 @@ class IsaacNode(Node):
         n = min(len(msg.position), len(joint_indices))
         for i in range(n):
             self.target_joints[group_name][joint_indices[i]] = msg.position[i] 
-    # def target_callback(self, msg: JointState, group_name: str):
-    #     if msg.position and self.reset_process >= 100:
-    #         if msg.name:
-    #             for joint_name, joint_pos in zip(msg.name, msg.position):
-    #                 if joint_name in self.joint_names[group_name]:
-    #                     sim_idx = self.joint_names[group_name].index(joint_name)
-    #                     self.target_joints[group_name][sim_idx] = joint_pos
-    #         else:
-    #             self.get_logger().info("no msg name")
-    #             copy_len = min(len(msg.position), len(self.target_joints[group_name]))
-    #             self.target_joints[group_name][:copy_len] = msg.position[:copy_len]
-
-    #             if len(msg.position) == 8 and len(self.target_joints[group_name]) == 9:
-    #                 self.target_joints[group_name][-1] = msg.position[-1]
 
     def spin_and_step(self):
         while simulation_app.is_running():

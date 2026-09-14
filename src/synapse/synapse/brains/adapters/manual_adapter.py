@@ -12,6 +12,7 @@ import yourdfpy
 from robot_descriptions.loaders.yourdfpy import load_robot_description
 from loguru import logger
 from synapse.utils.embodiment_parser import EmbodimentParser
+from synapse.utils.assets_pathfinder import assets_get_path
 
 logger.disable("jaxls")
 
@@ -80,7 +81,7 @@ class ManualAdapter(BaseBrainAdapter):
                 if cfg.get('yourdfpy_description'):
                     urdf = load_robot_description(cfg.get('description_name'))
                 else:
-                    urdf = yourdfpy.URDF.load(cfg.get('urdf_path'))
+                    urdf = yourdfpy.URDF.load(assets_get_path(cfg.get('urdf_filename')))
                 self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
 
                 self.eef_frame[name] = cfg.get('eef_frame')

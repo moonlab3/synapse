@@ -1,6 +1,6 @@
 SINGLE_FR5:
   table_height: 0.85
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fr5.usd"
+  usd_filename: "fr5.usd"
   manipulator_step_size: 0.1   # for manual
   eef_step_size: 0.01           # for manual
   robots:
@@ -8,7 +8,7 @@ SINGLE_FR5:
       prim_path: "/World/fairino5_v6"
       states: "/synapse/joint_states/fr5"
       yourdfpy_description: false
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/fairino5_v6.urdf"
+      urdf_filename: "fairino5_v6.urdf"
       components:
         arm:
           type: "manipulator"
@@ -25,13 +25,13 @@ DUAL_XARM_V5:
   # right arm. pitch 60, yaw 30 := tilt 64.3, rotate 16.1
   # right arm. pitch 30, yaw 30 := tilt 41.4, rotate 40.9
   table_height: 0.85
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_xarm7_v5_sense.usd"
+  usd_filename: "dual_xarm7_v5_sense.usd"
   manipulator_step_size: 0.1   # for manual
   eef_step_size: 0.01           # for manual
   robots:
     dual_xarm_unit:                     # one physical articulation
       prim_path: "/Dual_Xarm7_v5_sense"
-      urdf_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_robot.urdf"
+      urdf_filename: "dual_robot.urdf"
       yourdfpy_description: false
       states: "/synapse/joint_states/dual_xarm_unit"
 
@@ -90,13 +90,13 @@ DUAL_XARM_V5:
             REAL_ROBOT: null
 
 DUAL_PANDA:
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/dual_panda.usd"
+  usd_filename: "dual_panda.usd"
   manipulator_step_size: 0.1   # for manual
   eef_step_size: 0.01           # for manual
   robots:
     panda_left:
       description_name: "panda_description"
-      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
+      urdf_filename: "panda.urdf"
       yourdfpy_description: true
       prim_path: "/World/franka_left"
       states: "/synapse/joint_states/panda_left"
@@ -111,7 +111,7 @@ DUAL_PANDA:
             ISAAC: "/synapse/target/panda_left"
     panda_right:
       description_name: "panda_description"
-      urdf_path: '/home/rog-sf/ws/synapse_ws/src/synapse/resources/panda.urdf'
+      urdf_filename: "panda.urdf"
       yourdfpy_description: true
       prim_path: "/World/franka_right"
       states: "/synapse/joint_states/panda_right"
@@ -127,27 +127,27 @@ DUAL_PANDA:
 
 SINGLE_PANDA_CAM:
   table_height: 0.85
-  # cameras:
-  #   wrist:
-  #     topic: "/synapse/camera/wrist/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
-  #     prim_path: "/World/franka_set/Franka/panda/panda_hand/wrist_cam"
-  #     focal_length: 1.5
-  #     orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
-  #     translation: [-0.1, 0.0, -0.05]
-  #     width: 256
-  #     height: 256
-  #     frequency: 20
-  #   quarter_view:
-  #     topic: "/synapse/camera/quarter_view/image_raw"
-  #     prim_path: "/World/franka_set/Azure/Camera"
-  #     focal_length: 1.5
-  #     width: 256
-  #     height: 256
-  #     frequency: 20
-  #     clipping_near_distance: 0.01
-  #     clipping_far_distance: 10.0
+  cameras:
+    wrist:
+      topic: "/synapse/camera/wrist/image_raw"    # DEFAULT /synapse/camera/[camera_name:wrist]/image_raw
+      prim_path: "/World/franka_set/Franka/panda/panda_hand/wrist_cam"
+      focal_length: 1.5
+      orientation: [0.0274, -0.0114, -0.0003, 0.9995]     #pitch -75, roll 180, yaw 0
+      translation: [-0.1, 0.0, -0.05]
+      width: 256
+      height: 256
+      frequency: 20
+    quarter_view:
+      topic: "/synapse/camera/quarter_view/image_raw"
+      prim_path: "/World/franka_set/Azure/Camera"
+      focal_length: 1.5
+      width: 256
+      height: 256
+      frequency: 20
+      clipping_near_distance: 0.01
+      clipping_far_distance: 10.0
 
-  usd_path: "/home/rog-sf/ws/synapse_ws/src/synapse/resources/OXE.usd"
+  usd_filename: "OXE.usd"
   robots:
     panda_arm:
       yourdfpy_description: true
