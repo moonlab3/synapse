@@ -14,7 +14,7 @@ from synapse.utils.scenario_parser import ScenarioParser
 from synapse.utils.embodiment_parser import EmbodimentParser
 from synapse.utils.trajectory_builder import build_target_messages
 import functools
-# import py_trees
+import py_trees
 import os
 from collections import deque
 from ament_index_python.packages import get_package_share_directory
@@ -96,9 +96,9 @@ class SynapseMainNode(Node):
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
         self.bt_root = scenario_parser.parse(scenario_path)
         self.terminal_ui.wait_debug("Parsing done")
-        # self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
-        # ^ still commented out -- the BT tree built above never actually ticks.
-        # tick() below is the hand-rolled loop that runs today.
+        self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
+        self.scenario_running = False
+        self.latest_detections = {}
 
         embodiment_parser = EmbodimentParser(embodiment_name)
         cameras = embodiment_parser.get_cameras()
@@ -235,6 +235,14 @@ class SynapseMainNode(Node):
             self.obs_buffer.append(obs_dict)
             self.updated_joints.clear()
 
+    def publish_action_chunk(self, action_chunk: list, adapter):
+        if not action_chunk:
+            return
+        dt = getattr(adapter, 'chunk_dt', 1.0 / self.tick_freq)
+        messages = build_target_messages(action_chunk, dt, self.component_targets)
+        for component_name, msg in messages.items():
+            self.target_publishers[component_name].publish(msg)
+
     def tick(self):
         key = self.terminal_ui.get_command()
 
@@ -249,7 +257,11 @@ class SynapseMainNode(Node):
                     self.pub_synapse_command.publish(String(data="QUIT"))
                     raise KeyboardInterrupt
                 case 'c':
-                    self.bt_root
+                    self.is_ticking = True
+                    self.scenario_running = True
+                    self.status = "Scenario Running"
+                    self.pub_synapse_command.publish(String(data="START"))
+                    self.terminal_ui.log(f"🌲🌲Scenario Run Started")
 
                 case 'x' if not self.is_ticking:
                     self.is_ticking = True
@@ -258,6 +270,7 @@ class SynapseMainNode(Node):
                     self.terminal_ui.log(f"🌲🌲BT Ticking Started.▶️ Status: {self.status}")
                 case 'z' if self.is_ticking:
                     self.is_ticking = False
+                    self.scenario_running = False
                     self.status = "Paused"
                     self.pub_synapse_command.publish(String(data="PAUSE"))
                     self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
@@ -279,46 +292,38 @@ class SynapseMainNode(Node):
         if not self.is_ticking:
             return
 
-        # --- Behavior Tree Execution Logic ---
-        # NOTE: this used to pop one waypoint off ActionChunkBuffer per tick
-        # and re-merge components by group before publishing JointState. That
-        # logic is gone: targets are now per-component and can be
-        # JointTrajectory, so we publish the WHOLE chunk in one message the
-        # moment inference finishes, instead of draining it stepwise.
         chunk_status = "IDLE"
         chunk_length = 0
 
-        if self.inference_future is not None and self.inference_future.done():
-            new_action_chunk = self.inference_future.result()
-            self.inference_future = None
+        if self.scenario_running:
+            self.bt_manager.tick()
+            chunk_status = str(self.bt_root.status)
+            chunk_length = 0
+        else:
+            if self.inference_future is not None and self.inference_future.done():
+                new_action_chunk = self.inference_future.result()
+                self.inference_future = None
 
-            if new_action_chunk:
-                adapter = self.brain_adapters[self.running_brain]
-                dt = getattr(adapter, 'chunk_dt', 1.0 / self.tick_freq)
+                if new_action_chunk:
+                    adapter = self.brain_adapters[self.running_brain]
+                    self.publish_action_chunk(new_action_chunk, adapter)
+                    chunk_status = "PUBLISHED_CHUNK"
+                    chunk_length = len(new_action_chunk)
+                else:
+                    chunk_status = "EMPTY_CHUNK"
 
-                messages = build_target_messages(new_action_chunk, dt, self.component_targets)
-                for component_name, msg in messages.items():
-                    if component_name not in self.target_publishers:
-                        continue
-                    self.target_publishers[component_name].publish(msg)
-
-                chunk_status = "PUBLISHED_CHUNK"
-                chunk_length = len(new_action_chunk)
-            else:
-                chunk_status = "EMPTY_CHUNK"
-
-        if self.inference_future is None and len(self.obs_buffer) > 0:
-            historical_obs = list(self.obs_buffer)
-            inference_option = InferenceOption(
-                default_command=self.running_default,
-                restart=self.restart_requested,
-            )
-            self.restart_requested = False
-            self.inference_future = self.inference_executor.submit(
-                self.brain_adapters[self.running_brain].infer,
-                historical_obs,
-                inference_option
+            if self.inference_future is None and len(self.obs_buffer) > 0:
+                historical_obs = list(self.obs_buffer)
+                inference_option = InferenceOption(
+                    default_command=self.running_default,
+                    restart=self.restart_requested,
                 )
+                self.restart_requested = False
+                self.inference_future = self.inference_executor.submit(
+                    self.brain_adapters[self.running_brain].infer,
+                    historical_obs,
+                    inference_option
+                    )
 
         self.terminal_ui.update_status(
             self.status,

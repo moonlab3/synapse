@@ -1,0 +1,58 @@
+# scn_test1.yaml
+named_poses: {}
+
+behavior_tree:
+  type: "Sequence"
+  name: "Root"
+  children:
+    - type: "Action"
+      name: "Recorded_1"
+      adapter: "rosbag_1"
+      description: "Plays back the first recorded rosbag."
+      conditions:
+        success:
+          logic: "AND"
+          checks:
+            - type: "policy_complete"
+              description: "Rosbag adapter reports playback done."
+    - type: "Action"
+      name: "Recorded_2"
+      adapter: "rosbag_2"
+      description: "Plays back the second recorded rosbag."
+      conditions:
+        success:
+          logic: "AND"
+          checks:
+            - type: "policy_complete"
+              description: "Rosbag adapter reports playback done."
+    - type: "Action"
+      name: "Random_Dance"
+      adapter: "random_brain_adapter"
+      description: "Runs the random-walk joint driver for 4 seconds."
+      conditions:
+        success:
+          logic: "AND"
+          checks:
+            - type: "time"
+              duration: 4.0
+              description: "4 seconds of random dance elapsed."
+    - type: "Action"
+      name: "Recorded_3"
+      adapter: "rosbag_3"
+      description: "Plays back the third recorded rosbag."
+      conditions:
+        success:
+          logic: "AND"
+          checks:
+            - type: "policy_complete"
+              description: "Rosbag adapter reports playback done."
+    - type: "Action"
+      name: "Recorded_4"
+      adapter: "rosbag_4"
+      description: "Plays back the fourth recorded rosbag."
+      conditions:
+        success:
+          logic: "AND"
+          checks:
+            - type: "policy_complete"
+              description: "Rosbag adapter reports playback done."

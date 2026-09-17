@@ -111,21 +111,21 @@ class PoseReachedCheck(BaseCheck):
         return list(eef_poses.keys()) if self.robot == "ALL" else [self.robot]
 
     def evaluate(self, action_ctx):
-        if self.target_pose_values is None:
-            return False  # named-pose lookup not implemented yet
-
         adapter = action_ctx['adapter']
         eef_poses = getattr(adapter, 'current_eef_poses', {})
+        named_poses = getattr(self.node, 'names_poses', {}).get(self.target_pose_name, {})
 
         for robot in self._target_robots(adapter):
+            target = self.target_pose_values if self.target_pose_values is not None else named_poses.get(robot)
+            if target is None:
+                return False
             pose = eef_poses.get(robot)
             if pose is None:
                 return False
-            error = sum((a - b) ** 2 for a, b in zip(pose[:3], self.target_pose_values[:3])) ** 0.5
+            error = sum((a - b) ** 2 for a, b in zip(pose[:3], target[:3])) ** 0.5
             if error > self.tolerance:
                 return False
         return True
-
 
 CHECK_REGISTRY = {
     'time': TimeCheck,
@@ -166,15 +166,6 @@ class ConditionGroup:
 # ============================================================
 
 class RunAction(py_trees.behaviour.Behaviour):
-    """
-    Drives one brain adapter's inference loop (background thread, same
-    pattern as before) and evaluates its success/failure ConditionGroups
-    every tick to decide when to report SUCCESS / FAILURE / RUNNING.
-
-    Failure is checked before success each tick, since failure conditions
-    here tend to be safety-relevant (e.g. collision risk) and should
-    preempt a success condition that happens to be true on the same tick.
-    """
     def __init__(self, name, adapter_key, conditions_cfg, bt_node_reference, description=""):
         super().__init__(name)
         self.adapter_key = adapter_key
@@ -187,13 +178,18 @@ class RunAction(py_trees.behaviour.Behaviour):
             if 'failure' in conditions_cfg else None
 
         self._start_time = None
+        self._inference_future = None
 
     def initialise(self):
         # py_trees calls this once when the node transitions INVALID -> RUNNING,
         # i.e. exactly when this Action becomes active. Good spot to (re)start
         # the clock used by TimeCheck.
         self._start_time = time.monotonic()
+        self._restart_pending = True
+        self.node.running_brain = self.adapter_key
         self.node.terminal_ui.log(f"▶️  [{self.name}] {self.description}")
+        adapter = self.node.brain_adapters.get(self.adapter_key)
+        adapter.reset()
 
     def _action_ctx(self):
         return {
@@ -221,20 +217,20 @@ class RunAction(py_trees.behaviour.Behaviour):
 
         # 3. Neither fired -- keep driving inference in the background,
         #    same submit/collect pattern as the original RunAdapterBehavior.
-        if self.node.inference_future is not None:
-            if self.node.inference_future.done():
-                new_action_chunk = self.node.inference_future.result()
-                if new_action_chunk:
-                    self.node.action_buffer.update_chunk(new_action_chunk)
-                self.node.inference_future = None
+        if self._inference_future is not None:
+            if self._inference_future.done():
+                new_action_chunk = self._inference_future.result()
+                self._inference_future = None
+                self.node.publish_action_chunk(new_action_chunk, adapter)
             return py_trees.common.Status.RUNNING
 
         historical_obs = list(self.node.obs_buffer)
         inference_option = InferenceOption(
-            default_command=self.node.running_default,
-            restart=self.node.restart_requested,
+            default_command=True,
+            restart=self._restart_pending,
         )
-        self.node.inference_future = self.node.inference_executor.submit(
+        self._restart_pending = False
+        self._inference_future = self.node.inference_executor.submit(
             adapter.infer, historical_obs, inference_option
         )
         return py_trees.common.Status.RUNNING
@@ -243,6 +239,8 @@ class RunAction(py_trees.behaviour.Behaviour):
         # Reset per-run state so re-entry (e.g. a Selector retrying this
         # branch later) starts its clock and conditions clean.
         self._start_time = None
+        self._restart_pending = False
+        self._inference_future = None
 
 class RunCondition(py_trees.behaviour.Behaviour):
     def __init__(self, name, conditions_cfg, bt_node_reference, description=""):
@@ -275,11 +273,10 @@ class RunCondition(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.FAILURE
 
         if self.success_group and self.success_group.evaluate(ctx):
-            print(f"✅ [{self.name}] success condition met")
-            # self.node.terminal_ui.log(f"✅ [{self.name}] success condition met")
+            self.node.terminal_ui.log(f"✅ [{self.name}] success condition met")
             return py_trees.common.Status.SUCCESS
 
-        return py_trees.common.Status.RUNNING
+        return py_trees.common.Status.FAILURE
 
     def terminate(self, new_status):
         self._start_time = None
@@ -299,6 +296,7 @@ class ScenarioParser:
         with open(file_path, 'r') as f:
             config = yaml.safe_load(f)
 
+        self.node.named_poses = config.get('named_poses', {})
         bt_root = self._build_node(config.get('behavior_tree', {}))
 
         print(f"===== 🌳🌳  Scenario Parsed from [{file_path}] =====")

@@ -1,4 +1,12 @@
 # example_scenario.yaml
+named_poses:
+  home:
+    left_arm: [0.30, 0.20, 0.50, 0.0, 0.0, 0.0]
+    right_arm: [0.30, 0.20, 0.50, 0.0, 0.0, 0.0]
+  safe_retract:
+    left_arm: [0.30, 0.20, 0.50, 0.0, 0.0, 0.0]
+    right_arm: [0.30, 0.20, 0.50, 0.0, 0.0, 0.0]
+
 behavior_tree:
   type: "Selector"
   name: "Root"

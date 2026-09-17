@@ -46,6 +46,8 @@ class BaseBrainAdapter(ABC, Node):
 
         return action_chunk
 
+    def reset(self):
+        pass
     @abstractmethod
     def _format_for_policy(self, obs_history: list, inference_option: InferenceOption):
         """Extracts history, applies FK if needed, formats for policy/ZMQ."""

@@ -84,6 +84,9 @@ class RosbagAdapter(BaseBrainAdapter):
             self.first_position[component] = msgs[0]['data'] if msgs else None
 
     # ------------------------------------------------------------------
+    def reset(self):
+        self.last_done = False
+        self.state = None
 
     def _start_seek(self, joints_dict):
         for component in self.bag_data:
