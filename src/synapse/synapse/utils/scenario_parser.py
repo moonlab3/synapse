@@ -115,7 +115,7 @@ class PoseReachedCheck(BaseCheck):
         eef_poses = getattr(adapter, 'current_eef_poses', {})
         named_poses = getattr(self.node, 'named_poses', {}).get(self.target_pose_name, {})
 
-        robots = self._target_robots(adapter)
+        robots = self._target_robots(adapter, named_poses)
         if not robots:
             return False
         for robot in robots:
@@ -328,7 +328,7 @@ class ScenarioParser:
             key = node_config['adapter']
             if self.node.brain_adapters.get(key) is None:
                 raise ValueError(
-                    f"Action '{node_name}' uses adapter '{key}' but registy has "
+                    f"Action '{node_name}' uses adapter '{key}' but registry has "
                     f"{list(self.node.brain_adapters)}")
             return RunAction(
                 name=node_name,
