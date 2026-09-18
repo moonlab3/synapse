@@ -105,17 +105,20 @@ class PoseReachedCheck(BaseCheck):
         self.target_pose_name = cfg.get('target_pose')
         self.target_pose_values = cfg.get('target_pose_values')
         self.tolerance = cfg.get('tolerance', 0.02)
-
-    def _target_robots(self, adapter):
-        eef_poses = getattr(adapter, 'current_eef_poses', {})
-        return list(eef_poses.keys()) if self.robot == "ALL" else [self.robot]
+    def _target_robots(self, adapter, named_pose):
+        if self.robot != "ALL":
+            return [self.robot]
+        return list(named_pose.keys()) or list(getattr(adapter, 'current_eef_poses', {}).keys())
 
     def evaluate(self, action_ctx):
         adapter = action_ctx['adapter']
         eef_poses = getattr(adapter, 'current_eef_poses', {})
-        named_poses = getattr(self.node, 'names_poses', {}).get(self.target_pose_name, {})
+        named_poses = getattr(self.node, 'named_poses', {}).get(self.target_pose_name, {})
 
-        for robot in self._target_robots(adapter):
+        robots = self._target_robots(adapter)
+        if not robots:
+            return False
+        for robot in robots:
             target = self.target_pose_values if self.target_pose_values is not None else named_poses.get(robot)
             if target is None:
                 return False
@@ -322,6 +325,11 @@ class ScenarioParser:
                 bt_node.add_child(self._build_node(child_cfg))
             return bt_node
         elif node_type == "Action":
+            key = node_config['adapter']
+            if self.node.brain_adapters.get(key) is None:
+                raise ValueError(
+                    f"Action '{node_name}' uses adapter '{key}' but registy has "
+                    f"{list(self.node.brain_adapters)}")
             return RunAction(
                 name=node_name,
                 adapter_key=node_config['adapter'],
