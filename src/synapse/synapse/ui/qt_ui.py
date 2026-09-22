@@ -273,9 +273,7 @@ class _MainWindow(QtWidgets.QWidget):
             self.brain_group.button(self._brain_names.index(st.running_brain)).setChecked(True)
 
         # Mirrors the guards in SynapseMainNode.handle_ui_event.
-        self.control_buttons[Intent.START].setEnabled(not st.is_ticking or st.scenario_running)
         self.control_buttons[Intent.PAUSE].setEnabled(st.is_ticking)
-        self.control_buttons[Intent.RUN_SCENARIO].setEnabled(not st.scenario_running)
 
         self.lbl_status.setText(f"Status: {st.status}")
         self.lbl_chunk.setText(f"Chunk: {st.action_buffer_status} ({st.action_buffer_length})")

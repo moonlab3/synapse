@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import sys
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.utilities import remove_ros_args
@@ -20,40 +19,12 @@ from synapse.utils.trajectory_builder import build_target_messages
 import functools
 import py_trees
 import os
-from collections import deque
 from ament_index_python.packages import get_package_share_directory
 
 
-class ActionChunkBuffer:
-    # Legacy stepwise buffer. No longer used by SynapseMainNode.tick(),
-    # which now publishes a full chunk as one trajectory the moment inference
-    # completes (see build_target_messages). Kept only because
-    # scenario_parser.RunAction (the currently-inactive py_trees BT path)
-    # still calls update_chunk()/get_length() on it. If/when the BT path is
-    # revived, RunAction needs the same publish-on-arrival treatment tick()
-    # got here, and this class can likely be deleted at that point.
-    def __init__(self):
-        self.action_queue = []
-        self.last_valid_action = None
-
-    def update_chunk(self, new_chunk: list):
-        self.action_queue = list(new_chunk)
-
-    def get_length(self):
-        return len(self.action_queue)
-
-    def pop_next_action(self):
-        if self.action_queue:
-            self.last_valid_action = self.action_queue.pop(0)
-            return self.last_valid_action, "EXECUTING_CHUNK"
-
-        if self.last_valid_action is not None:
-            return self.last_valid_action, "BUFFER_STARVATION_HOLD"
-
-        return None, "NO_DATA"
-
-
 class SynapseMainNode(Node):
+    MODE_STATUS = {None: "Paused", Intent.START: "Running", Intent.RUN_SCENARIO: "Scenario Running"}
+
     def __init__(self, ui):
         super().__init__(
             'synapse_bt_node',
@@ -89,9 +60,7 @@ class SynapseMainNode(Node):
         self.terminal_ui.debug("after loading brains")
         self.brain_node_list = list(self.brain_adapters.keys())
         self.brain_node_num = len(self.brain_adapters)
-        # running_brain: whatever drives right now (scenario Actions overwrite it).
-        # selected_brain: the operator's pick, restored when normal mode starts.
-        self.selected_brain = self.running_brain = self.brain_node_list[0]
+        self.running_brain = self.brain_node_list[0]
         self.terminal_ui.log(f"⚙️ ros2 {format_brain_map(self.brain_node_list)} initialized")
 
         scenario_parser = ScenarioParser(synapse_node=self)
@@ -99,8 +68,6 @@ class SynapseMainNode(Node):
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
         self.bt_root = scenario_parser.parse(scenario_path)
         self.terminal_ui.debug("Parsing done")
-        self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
-        self.scenario_running = False
         self.latest_detections = {}
 
         embodiment_parser = EmbodimentParser(embodiment_name)
@@ -166,7 +133,6 @@ class SynapseMainNode(Node):
 
         self.inference_future = None
         self.inference_executor = ThreadPoolExecutor(max_workers=1)  # Dedicated thread for inference
-        self.is_ticking = False
 
         self.pub_synapse_command = self.create_publisher(String, '/synapse/command', 10)  # For future use (e.g., start/stop signals)
 
@@ -178,7 +144,7 @@ class SynapseMainNode(Node):
         self.last_command = self.last_command_to_show = ""
         self.running_default = True
         self.restart_requested = False
-        self.status = "Idle"
+        self.mode = None  # None (paused) | Intent.START | Intent.RUN_SCENARIO
         self.tick_freq = tick_freq
         self.timer = self.create_timer(1.0 / tick_freq, self.tick)
 
@@ -261,33 +227,22 @@ class SynapseMainNode(Node):
             case Intent.QUIT:
                 self.pub_synapse_command.publish(String(data="QUIT"))
                 raise KeyboardInterrupt
-            case Intent.RUN_SCENARIO if not self.scenario_running:
-                self._reset_execution()
-                self.is_ticking = True
-                self.scenario_running = True
-                self.status = "Scenario Running"
+            case Intent.START | Intent.RUN_SCENARIO if self.mode != event.intent:
+                self.mode, self.restart_requested = event.intent, True
+                self.inference_future = None                        # drop the other mode's in-flight chunk
+                self.bt_root.stop(py_trees.common.Status.INVALID)   # scenario restarts from the root
                 self.pub_synapse_command.publish(String(data="START"))
-                self.terminal_ui.log("🌲🌲Scenario Run Started")
-            case Intent.START if not self.is_ticking or self.scenario_running:
-                self._reset_execution()
-                self.is_ticking = True
-                self.scenario_running = False
-                self.running_brain = self.selected_brain
-                self.status = "Running"
-                self.pub_synapse_command.publish(String(data="START"))
-                self.terminal_ui.log(f"🌲🌲BT Ticking Started.▶️ Status: {self.status}")
-            case Intent.PAUSE if self.is_ticking:
-                self.is_ticking = False
-                self.scenario_running = False
-                self.status = "Paused"
+                self.terminal_ui.log(f"🌲🌲{self.MODE_STATUS[self.mode]} ▶️")
+            case Intent.PAUSE if self.mode is not None:
+                self.mode = None
                 self.pub_synapse_command.publish(String(data="PAUSE"))
-                self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
+                self.terminal_ui.log("🌲🌲BT Freezed. ⏸️")
             case Intent.RESET:
                 self.pub_synapse_command.publish(String(data="RESET"))
             case Intent.SELECT_BRAIN:
                 idx = event.payload
                 if idx + 1 <= self.brain_node_num:
-                    self.selected_brain = self.running_brain = self.brain_node_list[idx]
+                    self.running_brain = self.brain_node_list[idx]
                     self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
                     self.running_default = True
                     self.restart_requested = True
@@ -298,26 +253,10 @@ class SynapseMainNode(Node):
             case Intent.TELEOP:
                 self.to_brain = self.last_command_to_show = event.payload
 
-    def _reset_execution(self):
-        """Drop what the previous run left behind so the next mode starts clean.
-
-        Without this a scenario resumed its old RUNNING Action (no initialise:
-        no adapter.reset(), stale clock), and normal mode kept driving the
-        scenario's last adapter with restart=False.
-        """
-        # Stops every RUNNING node (RunAction.terminate cancels its future),
-        # so the next scenario tick re-initialises from the root.
-        self.bt_root.stop(py_trees.common.Status.INVALID)
-        # A chunk inferred for the previous mode must never be published.
-        if self.inference_future is not None:
-            self.inference_future.cancel()
-            self.inference_future = None
-        self.restart_requested = True
-
     def tick(self):
         self.handle_ui_event(self.terminal_ui.poll())
 
-        if not self.is_ticking:
+        if self.mode is None:
             # Still report while idle/paused: the UI needs the brain list before
             # the first Execute, and must see "Paused" after Freeze.
             self._push_status("IDLE", 0)
@@ -326,8 +265,8 @@ class SynapseMainNode(Node):
         chunk_status = "IDLE"
         chunk_length = 0
 
-        if self.scenario_running:
-            self.bt_manager.tick()
+        if self.mode == Intent.RUN_SCENARIO:
+            self.bt_root.tick_once()
             chunk_status = str(self.bt_root.status)
             chunk_length = 0
         else:
@@ -360,15 +299,14 @@ class SynapseMainNode(Node):
 
     def _push_status(self, chunk_status, chunk_length):
         self.terminal_ui.update_status(UIStatus(
-            status=self.status,
+            status=self.MODE_STATUS[self.mode],
             obs_buffer_length=len(self.obs_buffer),
             action_buffer_status=chunk_status,
             action_buffer_length=chunk_length,
             command=self.last_command_to_show,
             brain_names=self.brain_node_list,
             running_brain=self.running_brain,
-            is_ticking=self.is_ticking,
-            scenario_running=self.scenario_running,
+            is_ticking=self.mode is not None,
         ))
 
 
