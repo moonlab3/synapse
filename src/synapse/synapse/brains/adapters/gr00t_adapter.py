@@ -124,7 +124,7 @@ class GR00TAdapter(BaseBrainAdapter):
                 
         print("⚡ JAX IK Compiler ready for all manipulators.")
         self.terminal = terminal
-        self.terminal.wait_debug("gr00t adapter init done")
+        self.terminal.debug("gr00t adapter init done")
 
     def _scatter_to_full(self, name, q_array: jnp.ndarray) -> jnp.ndarray:
         idx = self.dof_indices[name]

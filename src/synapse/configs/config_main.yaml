@@ -25,8 +25,8 @@ scn_test:
   embodiment_name: "DUAL_XARM_V5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  # muscle_option: "DUMMY"
-  muscle_option: "ISAAC"
+  muscle_option: "DUMMY"
+  # muscle_option: "ISAAC"
   move_time_sec: 0.01       # mandatory setting for REAL_ROBOT
   min_move_time_sec: 0.01   # mandatory setting for REAL_ROBOT
 

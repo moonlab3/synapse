@@ -243,6 +243,8 @@ class RunAction(py_trees.behaviour.Behaviour):
         # branch later) starts its clock and conditions clean.
         self._start_time = None
         self._restart_pending = False
+        if self._inference_future is not None:
+            self._inference_future.cancel()  # a stale chunk must never be published
         self._inference_future = None
 
 class RunCondition(py_trees.behaviour.Behaviour):

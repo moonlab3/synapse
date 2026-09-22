@@ -5,3 +5,7 @@ allegro v6
 python3 docker/container.py enter ros
 source ros setup.bash
 colcon build --symlink-install --packages-select allegro_hand_io allegro_hand_v6_description allegro_hand_v6_bringup allegro_hand_v6_hardware
+
+
+xarm settings: 18333
+ .201, .214

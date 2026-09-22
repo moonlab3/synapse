@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
+import argparse
+import sys
 import rclpy
+from rclpy.executors import ExternalShutdownException
+from rclpy.utilities import remove_ros_args
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import JointState, Image
 from trajectory_msgs.msg import JointTrajectory
 from collections import deque
-from synapse.utils.terminal_manager import BackgroundTUI
+from synapse.ui import Intent, LogLevel, UISelector, UIStatus, format_brain_map
 from concurrent.futures import ThreadPoolExecutor
 from synapse.brains.brain_selector import BrainSelector
 from synapse.brains.base_brain_adapter import InferenceOption
@@ -50,14 +54,14 @@ class ActionChunkBuffer:
 
 
 class SynapseMainNode(Node):
-    def __init__(self):
+    def __init__(self, ui):
         super().__init__(
             'synapse_bt_node',
             allow_undeclared_parameters=True,
             automatically_declare_parameters_from_overrides=True
             )
 
-        self.terminal_ui = BackgroundTUI(self.get_parameter('debug_mode').value)
+        self.terminal_ui = ui
 
         embodiment_name = self.get_parameter('embodiment_name').value
         tick_freq = self.get_parameter('bt_tick_frequency_hz').value
@@ -71,7 +75,7 @@ class SynapseMainNode(Node):
         all_params = self.get_parameters_by_prefix('')
         param_overrides = list(all_params.values())
 
-        self.terminal_ui.wait_debug("start initializing")
+        self.terminal_ui.debug("start initializing")
         self.brain_adapters = {}
         for entry in registry_list:
             node_name, adapter_type = entry.split(':')
@@ -82,20 +86,19 @@ class SynapseMainNode(Node):
                 parameter_overrides=param_overrides
             )
 
-        self.terminal_ui.wait_debug("after loading brains")
+        self.terminal_ui.debug("after loading brains")
         self.brain_node_list = list(self.brain_adapters.keys())
         self.brain_node_num = len(self.brain_adapters)
-        self.brain_node_map = "Brain Adapters "
-        self.running_brain = self.brain_node_list[0]
-        for i, name in enumerate(self.brain_node_list):
-            self.brain_node_map += f"[{i+1}: {name}]  "
-        self.terminal_ui.log(f"⚙️ ros2 brains{self.brain_node_map} initialized")
+        # running_brain: whatever drives right now (scenario Actions overwrite it).
+        # selected_brain: the operator's pick, restored when normal mode starts.
+        self.selected_brain = self.running_brain = self.brain_node_list[0]
+        self.terminal_ui.log(f"⚙️ ros2 {format_brain_map(self.brain_node_list)} initialized")
 
         scenario_parser = ScenarioParser(synapse_node=self)
-        self.terminal_ui.wait_debug("Parsing start")
+        self.terminal_ui.debug("Parsing start")
         scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
         self.bt_root = scenario_parser.parse(scenario_path)
-        self.terminal_ui.wait_debug("Parsing done")
+        self.terminal_ui.debug("Parsing done")
         self.bt_manager = py_trees.trees.BehaviourTree(self.bt_root)
         self.scenario_running = False
         self.latest_detections = {}
@@ -243,53 +246,81 @@ class SynapseMainNode(Node):
         for component_name, msg in messages.items():
             self.target_publishers[component_name].publish(msg)
 
+    def handle_ui_event(self, event):
+        """Apply one operator Intent to node state.
+
+        Front-end agnostic on purpose: a keypress in the TUI and a button in
+        the GUI arrive here as the same Intent, so neither side has to know
+        the other exists.
+        """
+        if event is None:
+            self.to_brain = None
+            return
+
+        match event.intent:
+            case Intent.QUIT:
+                self.pub_synapse_command.publish(String(data="QUIT"))
+                raise KeyboardInterrupt
+            case Intent.RUN_SCENARIO if not self.scenario_running:
+                self._reset_execution()
+                self.is_ticking = True
+                self.scenario_running = True
+                self.status = "Scenario Running"
+                self.pub_synapse_command.publish(String(data="START"))
+                self.terminal_ui.log("🌲🌲Scenario Run Started")
+            case Intent.START if not self.is_ticking or self.scenario_running:
+                self._reset_execution()
+                self.is_ticking = True
+                self.scenario_running = False
+                self.running_brain = self.selected_brain
+                self.status = "Running"
+                self.pub_synapse_command.publish(String(data="START"))
+                self.terminal_ui.log(f"🌲🌲BT Ticking Started.▶️ Status: {self.status}")
+            case Intent.PAUSE if self.is_ticking:
+                self.is_ticking = False
+                self.scenario_running = False
+                self.status = "Paused"
+                self.pub_synapse_command.publish(String(data="PAUSE"))
+                self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
+            case Intent.RESET:
+                self.pub_synapse_command.publish(String(data="RESET"))
+            case Intent.SELECT_BRAIN:
+                idx = event.payload
+                if idx + 1 <= self.brain_node_num:
+                    self.selected_brain = self.running_brain = self.brain_node_list[idx]
+                    self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
+                    self.running_default = True
+                    self.restart_requested = True
+            case Intent.SEND_COMMAND:
+                self.to_brain = self.last_command_to_show = event.payload
+                self.running_default = False
+                self.terminal_ui.log(f"entered: {event.payload}")
+            case Intent.TELEOP:
+                self.to_brain = self.last_command_to_show = event.payload
+
+    def _reset_execution(self):
+        """Drop what the previous run left behind so the next mode starts clean.
+
+        Without this a scenario resumed its old RUNNING Action (no initialise:
+        no adapter.reset(), stale clock), and normal mode kept driving the
+        scenario's last adapter with restart=False.
+        """
+        # Stops every RUNNING node (RunAction.terminate cancels its future),
+        # so the next scenario tick re-initialises from the root.
+        self.bt_root.stop(py_trees.common.Status.INVALID)
+        # A chunk inferred for the previous mode must never be published.
+        if self.inference_future is not None:
+            self.inference_future.cancel()
+            self.inference_future = None
+        self.restart_requested = True
+
     def tick(self):
-        key = self.terminal_ui.get_command()
-
-        if key and key.startswith("CMD:"):
-            command_sentence = key[4:]
-            self.to_brain = self.last_command_to_show = command_sentence
-            self.running_default = False
-            self.terminal_ui.log(f"entered: {command_sentence}")
-        else:
-            match key:
-                case 'v':
-                    self.pub_synapse_command.publish(String(data="QUIT"))
-                    raise KeyboardInterrupt
-                case 'c':
-                    self.is_ticking = True
-                    self.scenario_running = True
-                    self.status = "Scenario Running"
-                    self.pub_synapse_command.publish(String(data="START"))
-                    self.terminal_ui.log(f"🌲🌲Scenario Run Started")
-
-                case 'x' if not self.is_ticking:
-                    self.is_ticking = True
-                    self.status = "Running"
-                    self.pub_synapse_command.publish(String(data="START"))
-                    self.terminal_ui.log(f"🌲🌲BT Ticking Started.▶️ Status: {self.status}")
-                case 'z' if self.is_ticking:
-                    self.is_ticking = False
-                    self.scenario_running = False
-                    self.status = "Paused"
-                    self.pub_synapse_command.publish(String(data="PAUSE"))
-                    self.terminal_ui.log(f"🌲🌲BT Freezed. ⏸️ Status: {self.status}")
-                case 'q':
-                    self.pub_synapse_command.publish(String(data="RESET"))
-                case '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0':
-                    idx = int(key) - 1
-                    if idx + 1 <= self.brain_node_num:
-                        self.running_brain = self.brain_node_list[idx]
-                        self.terminal_ui.log(f"idx:{idx} node: {self.running_brain}")
-                        self.running_default = True
-                        self.restart_requested = True
-                case None:
-                    self.to_brain = None
-                    pass
-                case _:
-                    self.to_brain = self.last_command_to_show = key
+        self.handle_ui_event(self.terminal_ui.poll())
 
         if not self.is_ticking:
+            # Still report while idle/paused: the UI needs the brain list before
+            # the first Execute, and must see "Paused" after Freeze.
+            self._push_status("IDLE", 0)
             return
 
         chunk_status = "IDLE"
@@ -325,28 +356,84 @@ class SynapseMainNode(Node):
                     inference_option
                     )
 
-        self.terminal_ui.update_status(
-            self.status,
-            len(self.obs_buffer),
-            chunk_status,
-            chunk_length,
-            self.last_command_to_show,
-            self.brain_node_map,
-            self.running_brain
-        )
+        self._push_status(chunk_status, chunk_length)
+
+    def _push_status(self, chunk_status, chunk_length):
+        self.terminal_ui.update_status(UIStatus(
+            status=self.status,
+            obs_buffer_length=len(self.obs_buffer),
+            action_buffer_status=chunk_status,
+            action_buffer_length=chunk_length,
+            command=self.last_command_to_show,
+            brain_names=self.brain_node_list,
+            running_brain=self.running_brain,
+            is_ticking=self.is_ticking,
+            scenario_running=self.scenario_running,
+        ))
+
+
+DEBUGPY_ADDR = ('127.0.0.1', 5678)  # localhost only: debugpy runs arbitrary code
+
+
+def _parse_cli(argv):
+    """Process-level options, passed by the launch file ahead of --ros-args."""
+    parser = argparse.ArgumentParser(prog='synapse_main_node')
+    parser.add_argument('--ui', default='tui', help='tui | gui')
+    parser.add_argument('--debug', default='false', type=str.lower,
+                        choices=['false', 'true', 'wait'],
+                        help='true: DEBUG logs + debugpy; wait: also block until attached')
+    return parser.parse_args(argv)
+
+
+def _start_debugger(ui, mode) -> bool:
+    """Replaces wait_debug: attach VS Code instead of pressing keys. Uses no
+    stdin, so it behaves the same under TUI, GUI and ros2 launch.
+    Returns True if the caller should block until a client attaches."""
+    if mode == 'false':
+        return False
+    try:
+        import debugpy
+    except ImportError:
+        ui.log("⚠️ debugpy not installed (pip install debugpy) -- DEBUG logs only", LogLevel.WARN)
+        return False
+    debugpy.listen(DEBUGPY_ADDR)
+    ui.log(f"🐞 debugpy listening on {DEBUGPY_ADDR[0]}:{DEBUGPY_ADDR[1]}")
+    return mode == 'wait'
 
 
 def main(args=None):
-
     rclpy.init(args=args)
-    node = SynapseMainNode()
+    opts = _parse_cli(remove_ros_args(args)[1:])
+
+    # The UI exists before the node so it is live during brain loading.
+    ui = UISelector.get_ui(opts.ui, debug_mode=opts.debug != 'false')
+    ui.start()
+    wait_for_debugger = _start_debugger(ui, opts.debug)
+    node = None
+
+    def build_and_spin():
+        # Main thread under TUI, worker thread under GUI -- see BaseUI.run.
+        nonlocal node
+        if wait_for_debugger:
+            import debugpy
+            ui.log("🐞 waiting for debugger to attach...")
+            debugpy.wait_for_client()
+        node = SynapseMainNode(ui)
+        try:
+            rclpy.spin(node)
+        except (KeyboardInterrupt, ExternalShutdownException):
+            pass  # QUIT intent, Ctrl-C, or launch shutting down: a clean exit
+
     try:
-        rclpy.spin(node)
+        ui.run(build_and_spin)
     except KeyboardInterrupt:
-        pass
+        pass  # Ctrl-C while the node was still being built
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        ui.shutdown()
+        if node is not None:
+            node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

@@ -92,7 +92,7 @@ class ManualAdapter(BaseBrainAdapter):
                 self.dof_indices[name] = jnp.array(joint_indices, dtype = jnp.int32)
                 self.dof_mask[name] = jnp.zeros(expected_dofs).at[self.dof_indices[name]].set(1.0)
 
-                self.terminal.wait_debug(f"[{self.robots[name].links.names}]")
+                self.terminal.debug(f"[{self.robots[name].links.names}]")
                 dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
                 self.terminal.log(f"[{name}] actuated joints: {self.robots[name].joints.actuated_names}")
                 dummy_q = jnp.zeros(expected_dofs)
@@ -106,7 +106,7 @@ class ManualAdapter(BaseBrainAdapter):
         print("Hand Selection:[i] Toggle Active Hand")
         print("Hand Fingers:  Bend [g, h, j, k, l] -> Thumb, Index, Middle, Ring, Little")
         print("               Unbend [G, H, J, K, L]")
-        self.terminal.wait_debug("manual adapter loading complete")
+        self.terminal.debug("manual adapter loading complete")
 
 
     def _se3_to_list(self, se3: jaxlie.SE3) -> list:
@@ -255,7 +255,7 @@ class ManualAdapter(BaseBrainAdapter):
         for h_name in self.hand_names:
             if h_name not in self.current_hand_joints and h_name in original_joints and original_joints[h_name].position:
                 self.current_hand_joints[h_name] = list(original_joints[h_name].position)
-                self.terminal.wait_debug(f"[{h_name}]position [{original_joints[h_name].position}]")
+                self.terminal.debug(f"[{h_name}]position [{original_joints[h_name].position}]")
 
         if command is not None:
             active_arm_name = (
@@ -263,7 +263,7 @@ class ManualAdapter(BaseBrainAdapter):
                 if self.manipulator_names and self.active_robot_idx < len(self.manipulator_names)
                 else "ALL ARMS"
             )
-            # self.terminal.wait_debug(f"Active Arm:[{active_arm_name}] with command [{command}]")
+            # self.terminal.debug(f"Active Arm:[{active_arm_name}] with command [{command}]")
 
             if command == 'o' and self.manipulator_names:
                 self.active_robot_idx = (self.active_robot_idx + 1) % (len(self.manipulator_names) + 1)

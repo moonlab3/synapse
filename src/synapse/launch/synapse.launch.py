@@ -8,7 +8,8 @@ from launch.substitutions import LaunchConfiguration
 
 def setup_launch(context: LaunchContext, *args, **kwargs):
     config_nickname = LaunchConfiguration('config').perform(context)
-    debug_arg = LaunchConfiguration('debug')
+    debug_mode = LaunchConfiguration('debug').perform(context).lower()
+    ui_mode = LaunchConfiguration('ui').perform(context).lower()
 
     synapse_config_path = os.path.join(
         get_package_share_directory('synapse'), 
@@ -26,15 +27,21 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
     active_config = config[config_nickname]
     muscle_option = active_config.get('muscle_option', 'DUMMY')
 
+    # The TUI reads keys from a terminal of its own. The GUI reads them from
+    # its window, so a spawned terminal would only sit there empty.
+    main_node_kwargs = {'prefix': 'gnome-terminal --wait --'} if ui_mode == 'tui' else {}
+
     nodes = [
         SetEnvironmentVariable('RCUTILS_CONSOLE_OUTPUT_FORMAT', '[{severity}]: {message}'),
         Node(
             package='synapse',
             executable='synapse_main_node.py',
             output='screen',
-            prefix='gnome-terminal --wait --',
-            # prefix="gnome-terminal --wait -- bash -c '\"$@\"; echo \"\"; echo \"Node exited or crashed. Press Enter to close...\"; read' bash ",
-            parameters=[active_config, {'debug_mode': debug_arg}],
+            # ui/debug are process options (argv), not node parameters: the UI
+            # is built before the node exists.
+            arguments=['--ui', ui_mode, '--debug', debug_mode],
+            parameters=[active_config],
+            **main_node_kwargs,
         )
     ]
 
@@ -98,7 +105,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'debug',
             default_value='false',
-            description='Debug mode'
+            description='false | true (DEBUG logs + debugpy on 127.0.0.1:5678) | wait (also block until attached)'
+        ),
+        DeclareLaunchArgument(
+            'ui',
+            default_value='tui',
+            description='Front-end: tui (curses, own terminal) | gui (Qt window)'
         ),
         # Use OpaqueFunction to evaluate the argument before building the graph
         OpaqueFunction(function=setup_launch)
