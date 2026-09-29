@@ -48,6 +48,7 @@ class UIStatus:
     brain_names: list = field(default_factory=list)
     running_brain: str = ""
     is_ticking: bool = False
+    has_scenario: bool = False
 
 
 # Reserved control keys. Everything else alphabetic falls through to the brain

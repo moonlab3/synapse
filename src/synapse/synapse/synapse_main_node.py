@@ -40,8 +40,6 @@ class SynapseMainNode(Node):
         muscle_option = self.get_parameter('muscle_option').value
         registry_list = self.get_parameter('brain_registry').value
         scenario_filename = self.get_parameter('scenario_filename').value
-        if scenario_filename is None:
-            scenario_filename = "scn_v2.yaml"
 
         all_params = self.get_parameters_by_prefix('')
         param_overrides = list(all_params.values())
@@ -63,11 +61,6 @@ class SynapseMainNode(Node):
         self.running_brain = self.brain_node_list[0]
         self.terminal_ui.log(f"⚙️ ros2 {format_brain_map(self.brain_node_list)} initialized")
 
-        scenario_parser = ScenarioParser(synapse_node=self)
-        self.terminal_ui.debug("Parsing start")
-        scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
-        self.bt_root = scenario_parser.parse(scenario_path)
-        self.terminal_ui.debug("Parsing done")
         self.latest_detections = {}
 
         embodiment_parser = EmbodimentParser(embodiment_name)
@@ -83,6 +76,15 @@ class SynapseMainNode(Node):
 
         articulation_groups = embodiment_parser.get_articulations()  # nested schema
         self.robots_cfg = robots                                      # flattened, all components
+
+        self.bt_root = None
+        if scenario_filename:
+            self.terminal_ui.debug("Parsing start")
+            scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
+            self.bt_root = ScenarioParser(synapse_node=self).parse(scenario_path)
+            self.terminal_ui.debug("Parsing done")
+        else:
+            self.terminal_ui.log("No scenario_filename, scenario run disabled")
 
         self.groups = {}
         grouped_component_names = set()
@@ -227,10 +229,13 @@ class SynapseMainNode(Node):
             case Intent.QUIT:
                 self.pub_synapse_command.publish(String(data="QUIT"))
                 raise KeyboardInterrupt
+            case Intent.RUN_SCENARIO if self.bt_root is None:
+                self.terminal_ui.log("No scenario loaded, scenario run ignored", LogLevel.WARN)
             case Intent.START | Intent.RUN_SCENARIO if self.mode != event.intent:
                 self.mode, self.restart_requested = event.intent, True
                 self.inference_future = None                        # drop the other mode's in-flight chunk
-                self.bt_root.stop(py_trees.common.Status.INVALID)   # scenario restarts from the root
+                if self.bt_root:
+                    self.bt_root.stop(py_trees.common.Status.INVALID)   # scenario restarts from the root
                 self.pub_synapse_command.publish(String(data="START"))
                 self.terminal_ui.log(f"🌲🌲{self.MODE_STATUS[self.mode]} ▶️")
             case Intent.PAUSE if self.mode is not None:
@@ -307,6 +312,7 @@ class SynapseMainNode(Node):
             brain_names=self.brain_node_list,
             running_brain=self.running_brain,
             is_ticking=self.mode is not None,
+            has_scenario=self.bt_root is not None,
         ))
 
 

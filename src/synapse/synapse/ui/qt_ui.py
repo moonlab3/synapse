@@ -274,6 +274,7 @@ class _MainWindow(QtWidgets.QWidget):
 
         # Mirrors the guards in SynapseMainNode.handle_ui_event.
         self.control_buttons[Intent.PAUSE].setEnabled(st.is_ticking)
+        self.control_buttons[Intent.RUN_SCENARIO].setEnabled(st.has_scenario)
 
         self.lbl_status.setText(f"Status: {st.status}")
         self.lbl_chunk.setText(f"Chunk: {st.action_buffer_status} ({st.action_buffer_length})")
