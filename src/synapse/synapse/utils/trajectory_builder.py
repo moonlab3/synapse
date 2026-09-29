@@ -2,6 +2,12 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration as MsgDuration
 
 
+def smoothstep(t: float) -> float:
+    """Ease in/out on a 0..1 progress value."""
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
 def build_target_messages(action_chunk: list, dt: float, targets: dict) -> dict:
     """
     action_chunk: list[dict[component_name, JointState]] -- brain adapter output.

@@ -169,11 +169,12 @@ class ConditionGroup:
 # ============================================================
 
 class RunAction(py_trees.behaviour.Behaviour):
-    def __init__(self, name, adapter_key, conditions_cfg, bt_node_reference, description=""):
+    def __init__(self, name, adapter_key, conditions_cfg, bt_node_reference, description="", params=None):
         super().__init__(name)
         self.adapter_key = adapter_key
         self.node = bt_node_reference
         self.description = description
+        self.params = params
 
         self.success_group = ConditionGroup(conditions_cfg.get('success', {}), self.node) \
             if 'success' in conditions_cfg else None
@@ -231,6 +232,7 @@ class RunAction(py_trees.behaviour.Behaviour):
         inference_option = InferenceOption(
             default_command=True,
             restart=self._restart_pending,
+            params=self.params,
         )
         self._restart_pending = False
         self._inference_future = self.node.inference_executor.submit(
@@ -299,13 +301,46 @@ class ScenarioParser:
         with open(file_path, 'r') as f:
             config = yaml.safe_load(f)
 
-        self.node.named_poses = config.get('named_poses', {})
+        self.named_poses = self.node.named_poses = config.get('named_poses', {})
         bt_root = self._build_node(config.get('behavior_tree', {}))
 
         print(f"===== 🌳🌳  Scenario Parsed from [{file_path}] =====")
         print(py_trees.display.unicode_tree(bt_root, show_only_visited=False))
 
         return bt_root
+
+    def _check_params(self, node_name: str, params: dict):
+        """Reject a bad params block here, not three ticks into a run, and resolve
+        named poses to values now so an adapter never needs the named_poses table."""
+        components = (params or {}).get('components') or {}
+        for name, spec in components.items():
+            spec = components[name] = spec or {}
+            cfg = self.node.robots_cfg.get(name)
+            if cfg is None:
+                raise ValueError(
+                    f"Action '{node_name}' targets unknown component '{name}'; "
+                    f"embodiment has {list(self.node.robots_cfg)}")
+
+            pose_name, values = spec.get('target_pose'), spec.get('target_pose_values')
+            if (pose_name or values is not None) and cfg.get('type') != 'manipulator':
+                raise ValueError(
+                    f"Action '{node_name}': '{name}' is type '{cfg.get('type')}', "
+                    f"a pose target needs a manipulator (use joint_targets)")
+            if pose_name and values:
+                raise ValueError(f"Action '{node_name}': '{name}' sets both target_pose and target_pose_values")
+            if pose_name and name not in self.named_poses.get(pose_name, {}):
+                raise ValueError(f"Action '{node_name}': named pose '{pose_name}' has no entry for '{name}'")
+            # if values is not None and len(values) != 6:
+            #     raise ValueError(f"Action '{node_name}': '{name}' target_pose_values needs 6 values, got {len(values)}")
+
+            if pose_name:
+                spec['target_pose_values'] = list(self.named_poses[pose_name][name])
+
+            joints, expected = spec.get('joint_targets'), len(cfg.get('joint_names', []))
+            if joints is not None and len(joints) != expected:
+                raise ValueError(
+                    f"Action '{node_name}': '{name}' joint_targets has {len(joints)} values, "
+                    f"component has {expected} joints")
 
     def _build_node(self, node_config: dict) -> py_trees.behaviour.Behaviour:
         if not node_config:
@@ -330,12 +365,14 @@ class ScenarioParser:
                 raise ValueError(
                     f"Action '{node_name}' uses adapter '{key}' but registry has "
                     f"{list(self.node.brain_adapters)}")
+            self._check_params(node_name, node_config.get('params'))
             return RunAction(
                 name=node_name,
                 adapter_key=node_config['adapter'],
                 conditions_cfg=node_config.get('conditions', {}),
                 bt_node_reference=self.node,
                 description=node_config.get('description', ''),
+                params=node_config.get('params'),
             )
         elif node_type == "Condition":
             return RunCondition(

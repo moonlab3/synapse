@@ -3,22 +3,9 @@ from ..base_brain_adapter import InferenceOption
 import numpy as np
 import os
 import sys
-import jax
-import jax.numpy as jnp
-import jax_dataclasses as jdc
-import jaxlie
-import jaxls
-import pyroki as pk
 from sensor_msgs.msg import JointState
-from loguru import logger
 from synapse.utils.embodiment_parser import EmbodimentParser
-
-# Silence JAXLS and PyRoki info/debug logs
-logger.disable("jaxls")
-logger.disable("pyroki")
-import yourdfpy
-from robot_descriptions.loaders.yourdfpy import load_robot_description
-from synapse.utils.assets_pathfinder import assets_get_path
+from synapse.utils.kinematics import ArmKinematics
 
 # ==========================================
 # ⚡ GR00T Policy Client Setup
@@ -32,47 +19,6 @@ try:
 except ImportError:
     print("⚠️ WARNING: Could not import GR00T PolicyClient. Ensure the path is correct.")
     PolicyClient = None
-
-# ==========================================
-# ⚡ JIT-Compiled Kinematics Solvers
-# ==========================================
-@jdc.jit
-def solve_ik_jit(
-    robot: pk.Robot,
-    target_se3: jaxlie.SE3,
-    target_link_idx: jax.Array,
-    initial_q: jax.Array,
-    joint_mask: jax.Array,
-) -> jax.Array:
-    """JIT-compiled IK solver for extreme performance."""
-    joint_var = robot.joint_var_cls(0)
-
-    costs = [
-        pk.costs.pose_cost_analytic_jac(
-            robot, 
-            joint_var,
-            target_se3,
-            target_link_idx, 
-            pos_weight=1.0,
-            ori_weight=1.0,
-            joint_mask=joint_mask
-        ),
-        pk.costs.limit_constraint(robot, joint_var)
-    ]
-
-    init_vals = jaxls.VarValues.make([joint_var.with_value(initial_q)])
-
-    sol = (
-        jaxls.LeastSquaresProblem(costs=costs, variables=[joint_var])
-        .analyze()
-        .solve(
-            initial_vals=init_vals, 
-            verbose=False,
-            linear_solver="dense_cholesky",
-            trust_region=jaxls.TrustRegionConfig(lambda_initial=1.0)
-        )
-    )
-    return sol[joint_var]
 
 # ==========================================
 # 🧠 VLA Brain Adapter (GR00T)
@@ -95,83 +41,12 @@ class GR00TAdapter(BaseBrainAdapter):
         parser = EmbodimentParser(self.embodiment_name)
         self.robots_cfg = parser.get_robots()
 
-        self.robots = {}
-        self.eef_frame = {}
-        self.current_eef_poses = {}
-        self.dof_indices = {}
-        self.dof_mask = {}
-        
-        dummy_se3 = jaxlie.SE3.identity()
+        self.kin = ArmKinematics(self.robots_cfg)
+        self.current_eef_poses = self.kin.current_eef_poses  # the BT pose checks read this
 
-        for name, cfg in self.robots_cfg.items():
-            if cfg.get('type') == 'manipulator':
-                if cfg.get('yourdfpy_description'):
-                    urdf = load_robot_description(cfg.get('description_name'))
-                else:
-                    urdf = yourdfpy.URDF.load(assets_get_path(cfg.get('urdf_filename')))
-                
-                self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
-                self.eef_frame[name] = cfg.get('eef_frame')
-                self.current_eef_poses[name] = [0.0] * 6
-                
-                expected_dofs = self.robots[name].joints.num_actuated_joints
-                joint_indices = cfg.get('joint_indices')
-                self.dof_indices[name] = jnp.array(joint_indices, dtype=jnp.int32)
-                self.dof_mask[name] = jnp.zeros(expected_dofs).at[self.dof_indices[name]].set(1.0)
-                dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
-                dummy_q = jnp.zeros(expected_dofs)
-                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q, self.dof_mask[name]) 
-                
         print("⚡ JAX IK Compiler ready for all manipulators.")
         self.terminal = terminal
         self.terminal.debug("gr00t adapter init done")
-
-    def _scatter_to_full(self, name, q_array: jnp.ndarray) -> jnp.ndarray:
-        idx = self.dof_indices[name]
-        n = idx.shape[0]
-        if q_array.shape[0] > n:
-            q_array = q_array[:n]
-        elif q_array.shape[0] < n:
-            q_array = jnp.concatenate([q_array, jnp.zeros(n - q_array.shape[0])])
-        expected_dofs = self.robots[name].joints.num_actuated_joints
-        return jnp.zeros(expected_dofs).at[idx].set(q_array)
-
-    def _se3_to_list(self, se3: jaxlie.SE3) -> list:
-        translation = se3.translation()
-        rpy = se3.rotation().as_rpy_radians() 
-        return [
-            float(translation[0]), float(translation[1]), float(translation[2]), 
-            float(rpy[0]), float(rpy[1]), float(rpy[2])
-        ]
-
-    def _list_to_se3(self, pose: list) -> jaxlie.SE3:
-        translation = jnp.array(pose[:3])
-        rotation = jaxlie.SO3.from_rpy_radians(pose[3], pose[4], pose[5])
-        return jaxlie.SE3.from_rotation_and_translation(rotation, translation)
-
-    def _forward_kinematics(self, joint_states_dict: dict) -> dict:
-        """Calculates EEF Poses for all manipulators independently."""
-        eef_poses = {}
-        
-        for name, cfg in self.robots_cfg.items():
-            if cfg.get('type') == 'manipulator':
-                joint_state = joint_states_dict.get(name)
-                
-                if not joint_state or not joint_state.position:
-                    eef_poses[name] = self.current_eef_poses.get(name, [0.0] * 6).copy()
-                    continue
-
-                q = jnp.array(joint_state.position)
-                q_padded = self._scatter_to_full(name, q)
-                
-                all_link_poses = self.robots[name].forward_kinematics(q_padded)
-                eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
-                eef_se3 = jaxlie.SE3(all_link_poses[eef_idx])
-                
-                eef_poses[name] = self._se3_to_list(eef_se3)
-                self.current_eef_poses[name] = eef_poses[name].copy()
-                
-        return eef_poses
 
     def _communicate_with_policy(self, formatted_obs: dict) -> dict:
         # Extract internal context before passing to GR00T
@@ -207,7 +82,7 @@ class GR00TAdapter(BaseBrainAdapter):
             command = raw_command if isinstance(raw_command, str) else self.default_command
         
         # 1. Get Cartesian Poses for all manipulators
-        eef_poses = self._forward_kinematics(joints_dict)
+        eef_poses = self.kin.forward_kinematics(joints_dict)
         
         state = {}
         is_primary_arm = True
@@ -287,8 +162,7 @@ class GR00TAdapter(BaseBrainAdapter):
         seed_qs = {}
         for name, cfg in self.robots_cfg.items():
             if cfg.get('type') == 'manipulator' and name in original_joints:
-                q = jnp.array(original_joints[name].position)
-                seed_qs[name] = self._scatter_to_full(name, q)
+                seed_qs[name] = self.kin.seed_from_positions(name, original_joints[name].position)
 
         # 2. Iterate through the GR00T chunk sequence
         for step_index in range(num_chunks):
@@ -323,23 +197,13 @@ class GR00TAdapter(BaseBrainAdapter):
                         base_pose[3] + droll, base_pose[4] + dpitch, base_pose[5] + dyaw,
                     ]
                     
-                    target_se3 = self._list_to_se3(target_eef_pose)
-                    target_link_idx_jax = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
-                    
-                    optimized_q = solve_ik_jit(
-                        self.robots[name],
-                        target_se3,
-                        target_link_idx_jax,
-                        seed_qs[name],
-                        self.dof_mask[name],
-                    )
-                    
-                    seed_qs[name] = optimized_q 
+                    optimized_q = self.kin.solve(name, target_eef_pose, seed_qs[name])
+                    seed_qs[name] = optimized_q
                     
                     # Map gripper back to hardware limits
                     finger_target = float(np.clip(gripper_cmd, 0.0, 1.0) * 0.04)
 
-                    idx_list = self.dof_indices[name].tolist()
+                    idx_list = self.kin.dof_indices[name].tolist()
                     original_length = len(original_js.position)
                     final_positions = list(original_js.position)
 

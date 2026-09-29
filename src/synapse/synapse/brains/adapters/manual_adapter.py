@@ -1,67 +1,12 @@
-import jax
-
 from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 from sensor_msgs.msg import JointState
-import jax.numpy as jnp
-import jaxlie
-import jaxls
-import jax_dataclasses as jdc
-import pyroki as pk
-import yourdfpy
-from robot_descriptions.loaders.yourdfpy import load_robot_description
-from loguru import logger
 from synapse.utils.embodiment_parser import EmbodimentParser
-from synapse.utils.assets_pathfinder import assets_get_path
-
-logger.disable("jaxls")
-
-@jdc.jit
-def solve_ik_jit(
-    robot: pk.Robot,
-    target_se3: jaxlie.SE3,
-    target_link_idx: jax.Array,
-    initial_q: jax.Array,
-    joint_mask: jax.Array
-    ) -> jax.Array:
-    """JIT-compiled IK solver for extreme performance."""
-    joint_var = robot.joint_var_cls(0)
-    # joint_mask = jnp.ones(robot.joints.num_actuated_joints)
-
-    costs = [
-        pk.costs.pose_cost_analytic_jac(
-            robot, 
-            joint_var,
-            target_se3,
-            target_link_idx, 
-            pos_weight=1.0,
-            ori_weight=1.0,
-            joint_mask=joint_mask
-        ),
-        pk.costs.limit_constraint(
-            robot,
-            joint_var,
-        )
-    ]
-
-    init_vals = jaxls.VarValues.make([joint_var.with_value(initial_q)])
-
-    sol = (
-        jaxls.LeastSquaresProblem(costs=costs, variables=[joint_var])
-        .analyze()
-        .solve(
-            initial_vals=init_vals, 
-            verbose=False,
-            linear_solver="dense_cholesky",
-            trust_region=jaxls.TrustRegionConfig(lambda_initial=1.0)
-        )
-    )
-    return sol[joint_var]
+from synapse.utils.kinematics import ArmKinematics
 
 class ManualAdapter(BaseBrainAdapter):
     def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
         super().__init__(terminal, node_name, parameter_overrides)
-        self.current_eef_poses = {}
         self.current_hand_joints = {}
         self.terminal = terminal
 
@@ -70,35 +15,11 @@ class ManualAdapter(BaseBrainAdapter):
         self.eef_step_size = parser.get_config().get('eef_step_size', 0.01)
         self.robots_cfg = parser.get_robots()
 
-        dummy_se3 = jaxlie.SE3.identity()
-        self.robots = {}
-        self.eef_frame = {}
-        self.dof_indices = {}
-        self.dof_mask = {}
-
-        for name, cfg in self.robots_cfg.items():
-            if cfg.get('type') == 'manipulator':
-                if cfg.get('yourdfpy_description'):
-                    urdf = load_robot_description(cfg.get('description_name'))
-                else:
-                    urdf = yourdfpy.URDF.load(assets_get_path(cfg.get('urdf_filename')))
-                self.robots[name] = pk.Robot.from_urdf(urdf=urdf)
-
-                self.eef_frame[name] = cfg.get('eef_frame')
-                expected_dofs = self.robots[name].joints.num_actuated_joints
-
-                joint_indices = cfg.get('joint_indices')
-
-                self.dof_indices[name] = jnp.array(joint_indices, dtype = jnp.int32)
-                self.dof_mask[name] = jnp.zeros(expected_dofs).at[self.dof_indices[name]].set(1.0)
-
-                self.terminal.debug(f"[{self.robots[name].links.names}]")
-                dummy_idx = jnp.array(self.robots[name].links.names.index(self.eef_frame[name]), dtype=jnp.int32)
-                self.terminal.log(f"[{name}] actuated joints: {self.robots[name].joints.actuated_names}")
-                dummy_q = jnp.zeros(expected_dofs)
-                _ = solve_ik_jit(self.robots[name], dummy_se3, dummy_idx, dummy_q, self.dof_mask[name]) 
-            elif cfg.get('type') == 'end-effector':
-                self.single_finger_dofs = cfg.get('single_finger_dofs', 4)
+        self.kin = ArmKinematics(self.robots_cfg, terminal)
+        self.current_eef_poses = self.kin.current_eef_poses  # the BT pose checks read this
+        self.single_finger_dofs = next(
+            (cfg.get('single_finger_dofs', 4) for cfg in self.robots_cfg.values()
+             if cfg.get('type') == 'end-effector'), 4)
 
         print("⚡ JAX IK Compiler ready. Solving at microseconds.")
         print("Manual Mode Key input: eef pose +x [s], +y [d], +z[f], +roll[w], +pitch[e], +yaw[r]")
@@ -108,50 +29,6 @@ class ManualAdapter(BaseBrainAdapter):
         print("               Unbend [G, H, J, K, L]")
         self.terminal.debug("manual adapter loading complete")
 
-
-    def _se3_to_list(self, se3: jaxlie.SE3) -> list:
-        """Convert jaxlie.SE3 to a list of [x, y, z, roll, pitch, yaw]."""
-        translation = se3.translation()
-        rotation = se3.rotation().as_rpy_radians()
-        return [float(translation[0]), float(translation[1]), float(translation[2]), float(rotation[0]), float(rotation[1]), float(rotation[2])]
-    def _list_to_se3(self, pose_list: list) -> jaxlie.SE3:
-        """Convert a list of [x, y, z, roll, pitch, yaw] to jaxlie.SE3."""
-        translation = jnp.array(pose_list[:3])
-        rotation = jaxlie.SO3.from_rpy_radians(pose_list[3], pose_list[4], pose_list[5])
-        return jaxlie.SE3.from_rotation_and_translation(rotation, translation)
-
-    def _scatter_to_full(self, name, raw_q):
-        idx = self.dof_indices[name]
-        n = idx.shape[0]
-        if raw_q.shape[0] > n:
-            raw_q = raw_q[:n]
-        elif raw_q.shape[0] < n:
-            raw_q = jnp.pad(raw_q, (0, n - raw_q.shape[0]))
-        expected_dofs = self.robots[name].joints.num_actuated_joints
-        return jnp.zeros(expected_dofs).at[idx].set(raw_q)
-
-    def _forward_kinematics(self, joint_states_dict: dict) -> dict:
-        eef_poses = {}
-        
-        for name, cfg in self.robots_cfg.items():
-            if cfg.get('type') == 'manipulator':
-                joint_state = joint_states_dict.get(name)
-                
-                if not joint_state or not joint_state.position:
-                    eef_poses[name] = self.current_eef_poses.get(name, [0.0] * 6).copy()
-                    print(f"eef poses zero copy")
-                    continue
-
-                raw_q = jnp.array(joint_state.position)
-                q_fk = self._scatter_to_full(name, raw_q)
-
-                all_link_poses = self.robots[name].forward_kinematics(q_fk)
-                eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
-                
-                eef_se3 = jaxlie.SE3(all_link_poses[eef_idx])
-                eef_poses[name] = self._se3_to_list(eef_se3)
-                self.current_eef_poses[name] = eef_poses[name].copy()
-        return eef_poses
 
     def _inverse_kinematics(self, eef_poses_dict: dict, original_joint_states: dict, arms_to_solve=None) -> dict:
         target_joints = {}
@@ -170,23 +47,10 @@ class ManualAdapter(BaseBrainAdapter):
                     target_joints[name] = original_js if original_js else JointState()
                     continue
 
-                target_se3 = self._list_to_se3(eef_pose)
-                
-                raw_q = jnp.array(original_js.position)
-                ik_seed_q = self._scatter_to_full(name, raw_q)
+                seed_q = self.kin.seed_from_positions(name, original_js.position)
+                optimized_q = self.kin.solve(name, eef_pose, seed_q)
 
-                eef_idx = self.robots[name].links.names.index(self.eef_frame[name])
-                target_link_idx_jax = jnp.array(eef_idx, dtype=jnp.int32)
-                
-                optimized_q = solve_ik_jit(
-                    self.robots[name],
-                    target_se3,
-                    target_link_idx_jax,
-                    ik_seed_q,
-                    self.dof_mask[name],
-                )
-
-                idx_list = self.dof_indices[name].tolist()
+                idx_list = self.kin.dof_indices[name].tolist()
                 final_position = list(original_js.position)
                 for local_i, global_i in enumerate(idx_list):
                     if local_i < len(final_position):
@@ -207,7 +71,7 @@ class ManualAdapter(BaseBrainAdapter):
         images_dict = latest_obs.get("images", {})
         command = latest_obs.get("command")
         
-        eef_poses = self._forward_kinematics(joints_dict)
+        eef_poses = self.kin.forward_kinematics(joints_dict)
         
         return {
             "command": command, 

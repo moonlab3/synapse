@@ -9,6 +9,7 @@ from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 from synapse.utils.embodiment_parser import EmbodimentParser
 from synapse.utils.assets_pathfinder import assets_get_path
+from synapse.utils.trajectory_builder import smoothstep
 
 class RosbagAdapter(BaseBrainAdapter):
 
@@ -115,14 +116,9 @@ class RosbagAdapter(BaseBrainAdapter):
         self.last_done = False
         self.terminal.log(f"🔁 [rosbag] seeking to bag start over {self.seek_duration:.2f}s")
 
-    @staticmethod
-    def _smoothstep(t):
-        t = max(0.0, min(1.0, t))
-        return t * t * (3.0 - 2.0 * t)
-
     def _step_seek(self):
         elapsed = time.monotonic() - self.seek_start_time
-        alpha = self._smoothstep(elapsed / self.seek_duration)
+        alpha = smoothstep(elapsed / self.seek_duration)
 
         for component, start_pose in self.seek_start_pose.items():
             target_pose = self.first_position[component]

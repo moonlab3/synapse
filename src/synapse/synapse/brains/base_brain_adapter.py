@@ -6,6 +6,7 @@ from dataclasses import dataclass
 class InferenceOption:
     default_command: bool = True
     restart: bool = False
+    params: dict = None      # per-Action knobs from the scenario YAML; None outside the BT
 
 class BaseBrainAdapter(ABC, Node):
     def __init__(self, terminal, node_name=None, parameter_overrides=None):

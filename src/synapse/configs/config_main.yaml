@@ -8,7 +8,6 @@ default:
   publish_rate_hz: 100
 
 fairino:
-  scenario_filename: "scn_v2.yaml"
   embodiment_name: "SINGLE_FR5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -71,22 +70,29 @@ scn_test:
     seek_min_duration: 0.5
 
   publish_rate_hz: 100
-bottle_opener:
-  scenario_filename: "scn_v2.yaml"
+scn_mover_test:
+  scenario_filename: "scn_mover_test.yaml"
   embodiment_name: "DUAL_XARM_V5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
-  muscle_option: "REAL_ROBOT"
-  move_time_sec: 0.01       # mandatory setting for REAL_ROBOT
-  min_move_time_sec: 0.01   # mandatory setting for REAL_ROBOT
+  # muscle_option: "DUMMY"
+  muscle_option: "ISAAC"
 
   brain_registry:
-    - "manual_adapter:MANUAL"
-    - "random_brain_adapter:RANDOM"
-    - "rosbag_player:ROSBAG"
+    - "mover:MOVE"
+    - "rosbag_1:ROSBAG"
 
-  rosbag_player:
-    bag_filename: "snack1.json"
+  # Speeds are per-Action overridable in the scenario; these are the fallbacks.
+  mover:
+    linear_speed: 0.05        # m/s of eef travel
+    angular_speed: 0.5        # rad/s of eef rotation
+    joint_speed: 1.0          # rad/s for joint_targets legs (hands)
+    min_duration: 0.5         # s, floor for very short moves
+    ik_tolerance: 0.005       # m, residual that refuses a target or holds mid-move
+    ik_iterations: 4          # re-seeded solves per waypoint
+
+  rosbag_1:
+    bag_filename: "bottle_1.json"
     topic_component_map:
       - "/xarm7_left_controller/commands:left_arm"
       - "/xarm7_right_controller/commands:right_arm"
@@ -97,8 +103,8 @@ bottle_opener:
 
   publish_rate_hz: 100
 
+
 bottle_dummy:
-  scenario_filename: "scn_v2.yaml"
   embodiment_name: "DUAL_XARM_V5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -125,7 +131,6 @@ bottle_dummy:
   publish_rate_hz: 100
 
 dual_arm:
-  scenario_filename: "scn_v2.yaml"
   embodiment_name: "DUAL_PANDA"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -138,7 +143,6 @@ dual_arm:
   publish_rate_hz: 100
 
 gr00t_franka_sim:
-  scenario_filename: "scn_v2.yaml"
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -155,7 +159,6 @@ gr00t_franka_sim:
 
 multi_brain_test:
   # basic
-  scenario_filename: "scn_v2.yaml"
   embodiment_name: "SINGLE_PANDA_CAM"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
@@ -181,7 +184,6 @@ multi_brain_test:
   publish_rate_hz: 100
 
 fr5_real:
-  scenario_filename: "scn_v2.yaml"
   embodiment_name: "SINGLE_FR5"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
