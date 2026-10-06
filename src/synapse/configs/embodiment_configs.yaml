@@ -1,25 +1,3 @@
-SINGLE_FR5:
-  table_height: 0.85
-  usd_filename: "fr5.usd"
-  manipulator_step_size: 0.1   # for manual
-  eef_step_size: 0.01           # for manual
-  robots:
-    fr5:
-      prim_path: "/World/fairino5_v6"
-      states: "/synapse/joint_states/fr5"
-      yourdfpy_description: false
-      urdf_filename: "fairino5_v6.urdf"
-      components:
-        arm:
-          type: "manipulator"
-          name: "fairino5_v6"
-          joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
-          joint_indices: [0, 1, 2, 3, 4, 5]
-          eef_frame: "wrist3_link"
-          target:
-            ISAAC: "/synapse/target"
-            DUMMY: "/syanapse/target"
-
 DUAL_XARM_V6:
   table_height: 0.85
   usd_filename: "dual_xarm7_v6.usd"
@@ -246,3 +224,25 @@ SINGLE_PANDA_CAM:
           eef_frame: "panda_hand"
           joint_names: ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7", "panda_finger_joint1", "panda_finger_joint2"]
           joint_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+
+SINGLE_FR5:
+  table_height: 0.85
+  usd_filename: "fr5.usd"
+  manipulator_step_size: 0.1   # for manual
+  eef_step_size: 0.01           # for manual
+  robots:
+    fr5:
+      prim_path: "/World/fairino5_v6"
+      states: "/synapse/joint_states/fr5"
+      yourdfpy_description: false
+      urdf_filename: "fairino5_v6.urdf"
+      components:
+        arm:
+          type: "manipulator"
+          name: "fairino5_v6"
+          joint_names: ["j1", "j2", "j3", "j4", "j5", "j6"]
+          joint_indices: [0, 1, 2, 3, 4, 5]
+          eef_frame: "wrist3_link"
+          target:
+            ISAAC: "/synapse/target"
+            DUMMY: "/syanapse/target"
