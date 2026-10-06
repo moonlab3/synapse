@@ -1,3 +1,4 @@
+from .adapters.avp_adapter import AvpTeleopAdapter
 from .adapters.dummy_brain_adapter import DummyBrainAdapter
 from .adapters.gr00t_adapter import GR00TAdapter
 from .adapters.manual_adapter import ManualAdapter
@@ -15,6 +16,7 @@ class BrainSelector:
         'DUMMY': (DummyBrainAdapter, 'dummy_brain_adapter'),
         'ROSBAG': (RosbagAdapter, 'rosbag_adapter'),
         'MOVE': (MoveAdapter, 'move_adapter'),
+        'AVP': (AvpTeleopAdapter, 'avp_adapter'),
     }
 
     @staticmethod

@@ -1,4 +1,4 @@
-#!/home/rog-sf/installs/isaacsim/python.sh
+#!/home/rog-sf/installs/isaacsim_6/python.sh
 
 import sys
 import os
@@ -26,7 +26,7 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
             new_path = ':'.join([p for p in old_path.split(':') if 'ros/jazzy' not in p and 'python3.12' not in p])
             os.environ[path_var] = new_path
 
-    isaac_ros_lib = "/home/rog-sf/installs/isaacsim/exts/isaacsim.ros2.bridge/jazzy/lib"
+    isaac_ros_lib = "/home/rog-sf/installs/isaacsim_6/exts/isaacsim.ros2.core/jazzy/lib"
     os.environ['ROS_DISTRO'] = 'jazzy'
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_fastrtps_cpp'
     
@@ -38,14 +38,14 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-if "--disable" not in sys.argv:
-    sys.argv.extend(["--disable", "omni.isaac.ros2_bridge", "--enable", "isaacsim.ros2.bridge"])
+if "--enable" not in sys.argv:
+    sys.argv.extend(["--enable", "isaacsim.ros2.bridge"])
 
 # 3. Boot Isaac Sim
 from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": False})
 
-injected_args = ["--disable", "omni.isaac.ros2_bridge", "--enable", "isaacsim.ros2.bridge"]
+injected_args = ["--enable", "isaacsim.ros2.bridge"]
 sys.argv = [arg for arg in sys.argv if arg not in injected_args]
 
 # 4. ROS2 and Isaac Sim core imports
@@ -58,7 +58,8 @@ from std_msgs.msg import String
 from isaacsim.core.api.world import World
 from isaacsim.core.prims import Articulation
 from isaacsim.core.api.physics_context import PhysicsContext
-from omni.isaac.sensor import Camera
+# from omni.isaac.sensor import Camera
+from isaacsim.sensors.camera import Camera
 import omni.usd
 import functools
 import torch

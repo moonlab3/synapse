@@ -8,6 +8,7 @@ setup(
         'setuptools',
         'pyyaml',
         'numpy',
+        'scipy',
         'py_trees',
         'loguru',
         'jax',

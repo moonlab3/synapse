@@ -103,9 +103,42 @@ scn_mover_test:
 
   publish_rate_hz: 100
 
+avp_test:
+  embodiment_name: "DUAL_XARM_V6"
+  bt_tick_frequency_hz: 50
+  obs_buffer_window_size: 20
+  # muscle_option: "DUMMY"
+  muscle_option: "ISAAC"
+
+  brain_registry:
+    - "avp:AVP"
+
+  avp:
+    avp_ip: "1.1.21.235"      # shown in the Tracking Streamer app
+    arm_map:                    # AVP hand : component
+      - "left:left_arm"
+      - "right:right_arm"
+    hand_map:
+      - "left:left_hand"
+      - "right:right_hand"
+    avp_yaw_deg: -90.0          # AVP frame (x right, y forward) -> arm base frame
+    scale: 1.0                  # arm travel per unit of wrist travel
+    max_linear_step: 0.01       # m per waypoint
+    max_angular_step: 0.1       # rad per waypoint
+    stale_timeout: 0.2          # s without new data before holding
+    ik_tolerance: 0.005         # m, residual that holds the arm
+    ik_iterations: 4            # re-seeded solves per waypoint
+    # robot = gain * operator angle + offset, per joint Y of joint_XY
+    finger_gain: [1.0, 1.0, 1.0, 1.0]     # spread, then three bends
+    finger_offset: [0.0, 0.0, 0.0, 0.0]
+    thumb_gain: [1.0, 1.0, 1.0, 1.0]      # bend whole thumb, rotate, two bends
+    thumb_offset: [0.0, 0.0, 0.0, 0.0]
+
+  publish_rate_hz: 100
+
 
 bottle_dummy:
-  embodiment_name: "DUAL_XARM_V5"
+  embodiment_name: "DUAL_XARM_V6"
   bt_tick_frequency_hz: 50
   obs_buffer_window_size: 20
   muscle_option: "ISAAC"

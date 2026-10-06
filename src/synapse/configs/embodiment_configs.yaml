@@ -20,6 +20,89 @@ SINGLE_FR5:
             ISAAC: "/synapse/target"
             DUMMY: "/syanapse/target"
 
+DUAL_XARM_V6:
+  table_height: 0.85
+  usd_filename: "dual_xarm7_v6.usd"
+  manipulator_step_size: 0.1
+  eef_step_size: 0.01
+  robots:
+    xarm_v6_right:
+      prim_path: "/World/xarm7_v6r"
+      urdf_filename: "xarm7_clean.urdf"
+      yourdfpy_description: false
+      states: "/synapse/joint_states/xarm_v6_right"
+      components:
+        right_arm:
+          type: "manipulator"
+          eef_frame: "link_eef"
+          name: "xarm7_v6_right"
+          joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+          joint_indices: [0, 1, 2, 3, 4, 5, 6]
+          target:
+            ISAAC: "/synapse/target/right_arm"
+            DUMMY: "/synapse/target/right_arm"
+            REAL_ROBOT:
+              topic: "/right_xarm7_traj_controller/joint_trajectory"
+              msg_type: "JointTrajectory"
+        right_hand:
+          type: "end-effector"
+          name: "allegro_v6_right"
+          single_finger_dofs: 4
+          joint_names: ["joint_00", "joint_10", "joint_20", "joint_30", "joint_40",
+                        "joint_01", "joint_11", "joint_21", "joint_31", "joint_41",
+                        "joint_02", "joint_12", "joint_22", "joint_32", "joint_42",
+                        "joint_03", "joint_13", "joint_23", "joint_33", "joint_43"]
+          joint_indices: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+          joint_limits:   # rad, [lower, upper]
+            {joint_00: [-1.571, 0.0], joint_01: [-3.142, 0.0], joint_02: [-1.571, 0.0], joint_03: [-1.571, 0.0],
+             joint_10: [-0.349, 1.571], joint_20: [-1.396, 1.396], joint_30: [-1.396, 0.349], joint_40: [-1.571, 0.349],
+             joint_11: [0.0, 1.571], joint_21: [0.0, 1.571], joint_31: [0.0, 1.571], joint_41: [0.0, 1.571],
+             joint_12: [0.0, 1.571], joint_22: [0.0, 1.571], joint_32: [0.0, 1.571], joint_42: [0.0, 1.571],
+             joint_13: [0.0, 1.571], joint_23: [0.0, 1.571], joint_33: [0.0, 1.571], joint_43: [0.0, 1.571]}
+          target:
+            ISAAC: "/synapse/target/right_hand"
+            DUMMY: "/synapse/target/right_hand"
+            REAL_ROBOT: null
+
+    xarm_v6_left:
+      prim_path: "/World/xarm7_v6l"
+      urdf_filename: "xarm7_clean.urdf"
+      yourdfpy_description: false
+      states: "/synapse/joint_states/xarm_v6_left"
+      components:
+        left_arm:
+          type: "manipulator"
+          eef_frame: "link_eef"
+          name: "xarm7_v6_left"
+          joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+          joint_indices: [0, 1, 2, 3, 4, 5, 6]
+          target:
+            ISAAC: "/synapse/target/left_arm"
+            DUMMY: "/synapse/target/left_arm"
+            REAL_ROBOT:
+              topic: "/left_xarm7_traj_controller/joint_trajectory"
+              msg_type: "JointTrajectory"
+        left_hand:
+          type: "end-effector"
+          name: "allegro_v6_left"
+          single_finger_dofs: 4
+          joint_names: ["joint_00", "joint_10", "joint_20", "joint_30", "joint_40",
+                        "joint_01", "joint_11", "joint_21", "joint_31", "joint_41",
+                        "joint_02", "joint_12", "joint_22", "joint_32", "joint_42",
+                        "joint_03", "joint_13", "joint_23", "joint_33", "joint_43"]
+          joint_indices: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+          joint_limits:   # rad, [lower, upper]
+            {joint_00: [0.0, 1.571], joint_01: [0.0, 3.142], joint_02: [0.0, 1.571], joint_03: [0.0, 1.571],
+             joint_10: [-1.571, 0.349], joint_20: [-1.396, 1.396], joint_30: [-0.349, 1.396], joint_40: [-0.349, 1.571],
+             joint_11: [-1.571, 0.0], joint_21: [-1.571, 0.0], joint_31: [-1.571, 0.0], joint_41: [-1.571, 0.0],
+             joint_12: [-1.571, 0.0], joint_22: [-1.571, 0.0], joint_32: [-1.571, 0.0], joint_42: [-1.571, 0.0],
+             joint_13: [-1.571, 0.0], joint_23: [-1.571, 0.0], joint_33: [-1.571, 0.0], joint_43: [-1.571, 0.0]}
+          target:
+            ISAAC: "/synapse/target/left_hand"
+            DUMMY: "/synapse/target/left_hand"
+            REAL_ROBOT: null
+
+
 DUAL_XARM_V5:
   # YUMI like mounting setting
   # right arm. pitch 60, yaw 30 := tilt 64.3, rotate 16.1
