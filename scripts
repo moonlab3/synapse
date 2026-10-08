@@ -6,6 +6,7 @@ python3 docker/container.py enter ros
 source ros setup.bash
 colcon build --symlink-install --packages-select allegro_hand_io allegro_hand_v6_description allegro_hand_v6_bringup allegro_hand_v6_hardware
 
+host: export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
 
 xarm settings: 18333
  .201, .214

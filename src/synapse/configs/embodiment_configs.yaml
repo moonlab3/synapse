@@ -81,6 +81,73 @@ DUAL_XARM_V6:
             REAL_ROBOT: null
 
 
+DUAL_XARM_V6_REAL:
+  # The V6 hardware: upright bases 1 m apart, 5-finger hands. Joint names, state
+  # topics and hand limits are the real drivers', which differ from Isaac's.
+  table_height: 0.85
+  manipulator_step_size: 0.1
+  eef_step_size: 0.01
+  robots:
+    dual_xarm:                          # first group: real_robot_node relays /joint_states into it
+      urdf_filename: "xarm7_clean.urdf"
+      yourdfpy_description: false
+      states: "/synapse/joint_states/dual_xarm"
+      components:
+        right_arm:
+          type: "manipulator"
+          eef_frame: "link_eef"
+          joint_names: ["right_joint1", "right_joint2", "right_joint3", "right_joint4", "right_joint5", "right_joint6", "right_joint7"]
+          joint_indices: [0, 1, 2, 3, 4, 5, 6]
+          target:
+            REAL_ROBOT:
+              topic: "/right_xarm7_traj_controller/joint_trajectory"
+              msg_type: "JointTrajectory"
+        left_arm:
+          type: "manipulator"
+          eef_frame: "link_eef"
+          joint_names: ["left_joint1", "left_joint2", "left_joint3", "left_joint4", "left_joint5", "left_joint6", "left_joint7"]
+          joint_indices: [0, 1, 2, 3, 4, 5, 6]
+          target:
+            REAL_ROBOT:
+              topic: "/left_xarm7_traj_controller/joint_trajectory"
+              msg_type: "JointTrajectory"
+
+    allegro_v6_right:                   # the hand driver's own states topic, read directly
+      states: "/right_hand/joint_states"
+      components:
+        right_hand:
+          type: "end-effector"
+          single_finger_dofs: 4
+          joint_names: &v6_real_hand_joints      # the position controller's command order
+            ["joint00", "joint01", "joint02", "joint03", "joint10", "joint11", "joint12", "joint13",
+             "joint20", "joint21", "joint22", "joint23", "joint30", "joint31", "joint32", "joint33",
+             "joint40", "joint41", "joint42", "joint43"]
+          joint_indices: &v6_real_hand_indices [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+          joint_limits: &v6_real_hand_limits     # rad, [lower, upper]; same numbers on both hands
+            {joint00: [-0.034, 1.658], joint01: [-1.658, 1.658], joint02: [-0.174, 1.308], joint03: [-0.174, 1.396],
+             joint10: [-0.383, 1.308], joint20: [-1.134, 1.134], joint30: [-1.308, 0.383], joint40: [-1.308, 0.436],
+             joint11: [-0.069, 1.570], joint21: [-0.069, 1.570], joint31: [-0.069, 1.570], joint41: [-0.069, 1.570],
+             joint12: [-0.174, 1.396], joint22: [-0.174, 1.396], joint32: [-0.174, 1.396], joint42: [-0.174, 1.396],
+             joint13: [-0.174, 1.396], joint23: [-0.174, 1.396], joint33: [-0.174, 1.396], joint43: [-0.174, 1.396]}
+          target:
+            REAL_ROBOT:
+              topic: "/right_hand/allegro_hand_position_controller/commands"
+              msg_type: "Float64MultiArray"
+
+    allegro_v6_left:
+      states: "/left_hand/joint_states"
+      components:
+        left_hand:
+          type: "end-effector"
+          single_finger_dofs: 4
+          joint_names: *v6_real_hand_joints
+          joint_indices: *v6_real_hand_indices
+          joint_limits: *v6_real_hand_limits
+          target:
+            REAL_ROBOT:
+              topic: "/left_hand/allegro_hand_position_controller/commands"
+              msg_type: "Float64MultiArray"
+
 DUAL_XARM_V5:
   # YUMI like mounting setting
   # right arm. pitch 60, yaw 30 := tilt 64.3, rotate 16.1

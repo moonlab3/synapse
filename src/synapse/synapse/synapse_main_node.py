@@ -5,7 +5,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.utilities import remove_ros_args
 import numpy as np
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Float64MultiArray, String
 from sensor_msgs.msg import JointState, Image
 from trajectory_msgs.msg import JointTrajectory
 from collections import deque
@@ -122,7 +122,8 @@ class SynapseMainNode(Node):
         for component_name, resolved in self.component_targets.items():
             if resolved is None:
                 continue
-            msg_cls = JointTrajectory if resolved.msg_type == 'JointTrajectory' else JointState
+            msg_cls = {'JointTrajectory': JointTrajectory,
+                       'Float64MultiArray': Float64MultiArray}.get(resolved.msg_type, JointState)
             self.target_publishers[component_name] = self.create_publisher(msg_cls, resolved.topic, 10)
 
         self.terminal_ui.log(f"⚙️ ros2 topics initialized")

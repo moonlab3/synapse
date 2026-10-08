@@ -9,10 +9,10 @@ from sensor_msgs.msg import JointState
 from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 from synapse.utils.embodiment_parser import EmbodimentParser
-from synapse.utils.kinematics import ArmKinematics, interpolate_pose, pose_distance
+from synapse.utils.kinematics import ArmKinematics
 
 # avp_stream's wrist-local hand skeleton: the thumb is knuckle..tip, the four
-# fingers metacarpal..tip. Listed in robot finger order, X of joint_XY.
+# fingers metacarpal..tip. Listed in robot finger order, X of a joint name's XY.
 THUMB = (1, 2, 3, 4)
 FINGERS = ((5, 6, 7, 8, 9), (10, 11, 12, 13, 14), (15, 16, 17, 18, 19), (20, 21, 22, 23, 24))
 
@@ -26,12 +26,15 @@ class AvpTeleopAdapter(BaseBrainAdapter):
     and again whenever a hand comes back from a tracking loss.
 
     Hands are joint-space: bend angles measured on the operator's fingers go
-    straight to the robot's. Only hands with joint_XY names (X finger, thumb
-    first; Y joint, base first) are supported, with joint_limits in the
-    embodiment config giving each joint's range and bend direction.
+    straight to the robot's. Only hands whose joint names end in XY (X finger,
+    thumb first; Y joint, base first) are supported, with joint_limits in the
+    embodiment config giving each joint's range and direction.
 
     A side that is not tracked gets no target at all and the muscle holds its
-    last one. One waypoint leaves per infer call, as in MoveAdapter.
+    last one. One waypoint leaves per infer call, as in MoveAdapter. Speeds are
+    limited in real units, against the measured time between waypoints, and a
+    trajectory point is given longer than that to arrive: the next one then
+    lands while the arm is still moving, instead of after it braked to a stop.
     """
 
     def __init__(self, terminal, node_name="avp_adapter", parameter_overrides=None):
@@ -47,8 +50,10 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         # AVP frame is x right, y forward, z up; -90 deg suits a base whose x points forward.
         self.r_map = Rotation.from_euler('z', _p('avp_yaw_deg', -90.0), degrees=True).as_matrix()
         self.scale = _p('scale', 1.0)
-        self.max_linear_step = _p('max_linear_step', 0.01)    # m per waypoint
-        self.max_angular_step = _p('max_angular_step', 0.1)   # rad per waypoint
+        self.max_linear_speed = _p('max_linear_speed', 0.25)  # m/s of eef travel
+        self.max_angular_speed = _p('max_angular_speed', 2.5) # rad/s of eef rotation
+        self.max_finger_speed = _p('max_finger_speed', 5.0)   # rad/s, every hand joint
+        self.trajectory_lookahead = _p('trajectory_lookahead', 2.0)  # point duration, in waypoint periods
         self.stale_timeout = _p('stale_timeout', 0.2)         # s without a new frame
         self.ik_tolerance = _p('ik_tolerance', 0.005)         # m, residual that holds the arm
         self.ik_iterations = _p('ik_iterations', 4)           # re-seeded solves per waypoint
@@ -61,11 +66,14 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         self.robots_cfg = EmbodimentParser(self.embodiment_name).get_robots()
         for hand in self.hand_map.values():
             names = self.robots_cfg.get(hand, {}).get('joint_names', [])
-            if not all(re.fullmatch(r'joint_[0-4][0-3]', n) for n in names):
-                raise ValueError(f"'{hand}' joints are not named joint_XY, cannot map fingers onto it")
+            if not all(re.fullmatch(r'.*[0-4][0-3]', n) for n in names):
+                raise ValueError(f"'{hand}' joint names do not end in XY, cannot map fingers onto it")
 
         self.kin = ArmKinematics(self.robots_cfg, terminal)
         self.current_eef_poses = self.kin.current_eef_poses  # the BT pose checks read this
+
+        self.period = 2 * self.chunk_dt  # s between waypoints, measured; the node takes two ticks for one
+        self.last_step_time = 0.0
 
         self.streamer = None
         threading.Thread(target=self._connect, daemon=True).start()
@@ -87,7 +95,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
     # ------------------------------------------------------------------
     def reset(self):
         self.anchors = {}       # side -> (wrist 4x4, eef pose) at engage
-        self.commanded = {}     # arm -> last commanded eef pose
+        self.commanded = {}     # arm -> last commanded eef pose, hand -> last commanded joints
         self.seeds = {}         # arm -> full-DOF IK seed, carried between waypoints
         self.held = set()       # arms currently refused by IK, so the log fires once
         self.last_frame = None  # newest raw frame and when it arrived
@@ -102,8 +110,8 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         q, residual = seed, float('inf')
         for _ in range(max(1, self.ik_iterations)):
             q = self.kin.solve(name, pose, q)
-            residual = pose_distance(pose, self.kin.eef_pose(
-                name, [float(q[i]) for i in indices]))[0]
+            reached = self.kin.eef_pose(name, np.asarray(q)[indices].tolist())
+            residual = float(np.linalg.norm(np.subtract(pose[:3], reached[:3])))
             if residual <= self.ik_tolerance:
                 break
         return q, residual
@@ -138,6 +146,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             if self.anchors:
                 self.terminal.log(f"⚠️ [{self.get_name()}] Vision Pro stream is stale, holding")
             self.anchors.clear()  # re-engage from wherever the hands are when it returns
+            self.commanded.clear()
             return {}
 
         return {**formatted_obs, "frame": data.raw}
@@ -148,12 +157,20 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             return []
 
         now = time.monotonic()
+        # A pause (freeze, stale stream) is not a slow waypoint: it leaves the
+        # period alone, so the first step after it is an ordinary one.
+        elapsed, self.last_step_time = now - self.last_step_time, now
+        if elapsed < 0.1:
+            self.period += 0.2 * (elapsed - self.period)
+        self.chunk_dt = self.trajectory_lookahead * self.period
+
         step = {}
         for side in ('left', 'right'):
             wrist = frame[f"{side}_wrist"].reshape(4, 4)
             if not self._tracked(side, wrist, now):
                 if self.anchors.pop(side, None):
                     self.terminal.log(f"⚠️ [{self.get_name()}] {side} hand lost, holding")
+                self.commanded.pop(self.hand_map.get(side), None)
                 continue
 
             arm = self.arm_map.get(side)
@@ -164,8 +181,8 @@ class AvpTeleopAdapter(BaseBrainAdapter):
 
             hand = self.hand_map.get(side)
             if hand in self.robots_cfg:
-                step[hand] = self._joint_state(
-                    hand, self._hand_positions(side, hand, frame[f"{side}_fingers"]))
+                step[hand] = self._joint_state(hand, self._hand_positions(
+                    side, hand, frame[f"{side}_fingers"], raw_action["joints"].get(hand)))
 
         return [step] if step else []
 
@@ -186,15 +203,18 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         # delta, so the hand never has to be aligned with the eef.
         position = np.array(eef0[:3]) + self.scale * self.r_map @ (wrist[:3, 3] - wrist0[:3, 3])
         delta = Rotation.from_matrix(self.r_map @ wrist[:3, :3] @ wrist0[:3, :3].T @ self.r_map.T)
-        rpy = (delta * Rotation.from_euler('xyz', eef0[3:])).as_euler('xyz')
-        target = [float(v) for v in (*position, *rpy)]
+        rotation = delta * Rotation.from_euler('xyz', eef0[3:])
 
-        # Never ask for more than one step's worth of travel, however far the
+        # Never ask for more than one period's worth of travel, however far the
         # hand got ahead: a tracking glitch then costs a step, not a lunge.
-        linear_d, angular_d = pose_distance(self.commanded[arm], target)
-        alpha = min(1.0, self.max_linear_step / max(linear_d, 1e-9),
-                    self.max_angular_step / max(angular_d, 1e-9))
-        pose = interpolate_pose(self.commanded[arm], target, alpha)
+        last_position = np.array(self.commanded[arm][:3])
+        last_rotation = Rotation.from_euler('xyz', self.commanded[arm][3:])
+        move = position - last_position
+        turn = (rotation * last_rotation.inv()).as_rotvec()
+        alpha = min(1.0, self.max_linear_speed * self.period / max(np.linalg.norm(move), 1e-9),
+                    self.max_angular_speed * self.period / max(np.linalg.norm(turn), 1e-9))
+        pose = [float(v) for v in (*(last_position + alpha * move),
+                                   *(Rotation.from_rotvec(alpha * turn) * last_rotation).as_euler('xyz'))]
 
         solved, residual = self._solve(arm, pose, self.seeds[arm])
         if residual > self.ik_tolerance:
@@ -206,9 +226,9 @@ class AvpTeleopAdapter(BaseBrainAdapter):
 
         self.held.discard(arm)
         self.seeds[arm], self.commanded[arm] = solved, pose
-        return [float(solved[i]) for i in self.kin.dof_indices[arm].tolist()]
+        return np.asarray(solved)[self.kin.dof_indices[arm].tolist()].tolist()
 
-    def _hand_positions(self, side: str, hand: str, skeleton) -> list:
+    def _hand_positions(self, side: str, hand: str, skeleton, observed) -> list:
         p = skeleton[:, :3, 3]
 
         def bones(chain):
@@ -245,7 +265,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             out = np.cross(metacarpal, ulnar) * (1.0 if side == 'right' else -1.0)
             spread = float(np.arcsin(np.clip(b1 @ ulnar, -1.0, 1.0)))
             angles.append((
-                spread if side == 'left' else -spread,          # toward the little finger is + on a left hand
+                -spread,                                        # toward the thumb
                 float(np.arctan2(b1 @ out, b1 @ metacarpal)),   # knuckle
                 bend(b1, b2),
                 bend(b2, b3),
@@ -253,6 +273,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
 
         cfg = self.robots_cfg[hand]
         limits = cfg.get('joint_limits', {})
+        index_spread = limits.get(next(n for n in cfg['joint_names'] if n.endswith('10')), (-1.0, 1.0))
         positions = []
         for name in cfg['joint_names']:
             x, y = int(name[-2]), int(name[-1])
@@ -260,12 +281,24 @@ class AvpTeleopAdapter(BaseBrainAdapter):
                 else (self.finger_gain, self.finger_offset)
             value = gain[y] * angles[x][y] + offset[y]
             lo, hi = limits.get(name, (-np.pi, np.pi))
-            # Spread is signed already. Everything else only bends one way, toward
-            # the far end of its range -- which is what mirrors left and right.
-            if (x == 0 or y > 0) and -lo > hi:
+            # The limits say which way each joint turns, which is all that differs
+            # between a left and a right hand, or a simulated and a real one: a
+            # bend runs toward the far end of its own range, and spread toward the
+            # thumb is the way the index finger reaches furthest.
+            far_lo, far_hi = index_spread if x > 0 and y == 0 else (lo, hi)
+            if -far_lo > far_hi:
                 value = -value
             positions.append(float(np.clip(value, lo, hi)))
-        return positions
+
+        # One period's travel at most, from where the fingers actually are, so
+        # engaging with an open hand on a closed one closes it, not snaps it.
+        step = self.max_finger_speed * self.period
+        last = self.commanded.get(hand)
+        if last is None:
+            measured = dict(zip(observed.name or cfg['joint_names'], observed.position)) if observed else {}
+            last = [measured.get(n, p) for n, p in zip(cfg['joint_names'], positions)]
+        self.commanded[hand] = [l + min(max(p - l, -step), step) for l, p in zip(last, positions)]
+        return self.commanded[hand]
 
     def _joint_state(self, name: str, positions) -> JointState:
         msg = JointState()

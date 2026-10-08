@@ -1,3 +1,4 @@
+from std_msgs.msg import Float64MultiArray
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration as MsgDuration
 
@@ -33,6 +34,8 @@ def build_target_messages(action_chunk: list, dt: float, targets: dict) -> dict:
             out[component_name] = _to_joint_trajectory(waypoints, dt)
         elif resolved.msg_type == 'JointState':
             out[component_name] = waypoints[-1]
+        elif resolved.msg_type == 'Float64MultiArray':  # bare positions, in joint_names order
+            out[component_name] = Float64MultiArray(data=list(waypoints[-1].position))
         else:
             raise ValueError(f"❌ No converter for msg_type '{resolved.msg_type}' ({component_name})")
 
