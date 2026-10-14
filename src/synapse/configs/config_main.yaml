@@ -312,7 +312,7 @@ rl_sim:
     - "manual_adapter:MANUAL"
 
   rl_adapter:
-    export_dir: "~/ws/rl-platform/exported/handover_student"
+    export_dir: "~/ws/rl-platform/exported/handover_student_v2"
     rl_platform_path: "~/ws/rl-platform/source/rl_platform"
     side_map:
       - "right:right_arm,right_hand"
@@ -337,7 +337,7 @@ rl_real:
     - "manual_adapter:MANUAL"
 
   rl_adapter:
-    export_dir: "~/ws/rl-platform/exported/handover_student"
+    export_dir: "~/ws/rl-platform/exported/handover_student_v2"
     rl_platform_path: "~/ws/rl-platform/source/rl_platform"
     side_map:
       - "right:right_arm,right_hand"

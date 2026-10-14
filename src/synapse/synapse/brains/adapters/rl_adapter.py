@@ -39,7 +39,7 @@ class RLAdapter(BaseBrainAdapter):
             sys.path.append(rl_path)
         from rl_platform.deploy.student_runtime import StudentRuntime  # numpy only
 
-        export_dir = os.path.expanduser(_p('export_dir', '~/ws/rl-platform/exported/handover_student'))
+        export_dir = os.path.expanduser(_p("export_dir", "~/ws/rl-platform/exported/handover_student_v2"))
         self.runtime = StudentRuntime(os.path.join(export_dir, 'spec.json'), os.path.join(export_dir, 'policy.npz'))
         self.period = 1.0 / float(self.runtime.spec['control_hz'])
 
