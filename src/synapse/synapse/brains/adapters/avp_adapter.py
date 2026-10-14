@@ -28,7 +28,8 @@ class AvpTeleopAdapter(BaseBrainAdapter):
     Hands are joint-space: bend angles measured on the operator's fingers go
     straight to the robot's. Only hands whose joint names end in XY (X finger,
     thumb first; Y joint, base first) are supported, with joint_limits in the
-    embodiment config giving each joint's range and direction.
+    embodiment config giving each joint's range and direction. The thumb's rotate
+    joint X1 is the exception: it is not measured, it follows the thumb's X0.
 
     A side that is not tracked gets no target at all and the muscle holds its
     last one. One waypoint leaves per infer call, as in MoveAdapter. Speeds are
@@ -60,7 +61,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         # Per joint Y, applied to the operator's angle: robot = gain * angle + offset.
         self.finger_gain = _p('finger_gain', [1.0] * 4)       # spread, then three bends
         self.finger_offset = _p('finger_offset', [0.0] * 4)
-        self.thumb_gain = _p('thumb_gain', [1.0] * 4)         # bend whole thumb, rotate, two bends
+        self.thumb_gain = _p('thumb_gain', [1.0] * 4)         # bend whole thumb, rotate (unused), two bends
         self.thumb_offset = _p('thumb_offset', [0.0] * 4)
 
         self.robots_cfg = EmbodimentParser(self.embodiment_name).get_robots()
@@ -241,15 +242,12 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         # that way on a right hand and the opposite way on a left one.
         normal = np.cross(p[6] - p[0], p[21] - p[0]) * (1.0 if side == 'right' else -1.0)
         normal /= np.linalg.norm(normal) + 1e-9
-        forward = bones((0, 11))[0]            # wrist -> middle knuckle
-        lateral = np.cross(normal, forward)    # toward the thumb on a left hand, away on a right
 
         # Operator angles per finger X, in joint Y order.
         base, proximal, distal = bones(THUMB)
-        radial = lateral if side == 'left' else -lateral
         angles = [(
             float(np.arcsin(np.clip(base @ normal, -1.0, 1.0))),   # whole thumb toward the palm
-            float(np.arctan2(base @ radial, base @ forward)),      # swing out from the fingers
+            0.0,                                                   # rotate, set from joint 0 below
             bend(base, proximal),
             bend(proximal, distal),
         )]
@@ -281,6 +279,12 @@ class AvpTeleopAdapter(BaseBrainAdapter):
                 else (self.finger_gain, self.finger_offset)
             value = gain[y] * angles[x][y] + offset[y]
             lo, hi = limits.get(name, (-np.pi, np.pi))
+            if (x, y) == (0, 1):
+                # The thumb's rotate joint mirrors its joint 0, which comes first in
+                # every joint order: 0 at that one's lower limit, its own lower
+                # limit at that one's upper. The positive half is never used.
+                positions.append(float(thumb_travel * lo))
+                continue
             # The limits say which way each joint turns, which is all that differs
             # between a left and a right hand, or a simulated and a real one: a
             # bend runs toward the far end of its own range, and spread toward the
@@ -289,6 +293,8 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             if -far_lo > far_hi:
                 value = -value
             positions.append(float(np.clip(value, lo, hi)))
+            if (x, y) == (0, 0):
+                thumb_travel = (positions[-1] - lo) / (hi - lo)
 
         # One period's travel at most, from where the fingers actually are, so
         # engaging with an open hand on a closed one closes it, not snaps it.

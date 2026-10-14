@@ -50,11 +50,10 @@ class ManualAdapter(BaseBrainAdapter):
                 seed_q = self.kin.seed_from_positions(name, original_js.position)
                 optimized_q = self.kin.solve(name, eef_pose, seed_q)
 
-                idx_list = self.kin.dof_indices[name].tolist()
+                solved = self.kin.to_component_positions(name, optimized_q)
                 final_position = list(original_js.position)
-                for local_i, global_i in enumerate(idx_list):
-                    if local_i < len(final_position):
-                        final_position[local_i] = float(optimized_q[global_i])
+                n = min(len(final_position), len(solved))
+                final_position[:n] = solved[:n]
                 
                 out_msg = JointState()
                 out_msg.header = original_js.header

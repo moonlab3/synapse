@@ -6,6 +6,7 @@ default:
   brain_registry:
     - "manual:MANUAL"
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 fairino:
   embodiment_name: "SINGLE_FR5"
@@ -18,6 +19,7 @@ fairino:
     - "manual_adapter:MANUAL"
     - "random_brain_adapter:RANDOM"
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 scn_test:
   scenario_filename: "scn_v2_test.yaml"
@@ -70,6 +72,7 @@ scn_test:
     seek_min_duration: 0.5
 
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 scn_mover_test:
   scenario_filename: "scn_mover_test.yaml"
   embodiment_name: "DUAL_XARM_V5"
@@ -102,6 +105,7 @@ scn_mover_test:
     seek_min_duration: 0.5
 
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 avp_test:
   embodiment_name: "DUAL_XARM_V6"
@@ -111,6 +115,8 @@ avp_test:
 
   brain_registry:
     - "avp:AVP"
+    - "random_brain_adapter:RANDOM"
+    - "rosbag_player:ROSBAG"
 
   avp:
     avp_ip: "1.1.21.235"      # shown in the Tracking Streamer app
@@ -131,10 +137,20 @@ avp_test:
     # robot = gain * operator angle + offset, per joint Y of joint_XY
     finger_gain: [1.0, 1.0, 1.0, 1.0]     # spread, then three bends
     finger_offset: [0.0, 0.0, 0.0, 0.0]
-    thumb_gain: [1.0, 1.0, 1.0, 1.0]      # bend whole thumb, rotate, two bends
+    thumb_gain: [4.0, 1.0, 1.0, 1.0]      # bend whole thumb, rotate (unused: follows joint 0), two bends
     thumb_offset: [0.0, 0.0, 0.0, 0.0]
 
+  rosbag_player:
+    bag_filename: "snack1.json"
+    topic_component_map:
+      - "/xarm7_left_controller/commands:left_arm"
+      - "/xarm7_right_controller/commands:right_arm"
+      - "/allegro_hand_position_effort_controller_l/commands:left_hand"
+      - "/allegro_hand_position_effort_controller_r/commands:right_hand"
+    seek_velocity: 0.2
+    seek_min_duration: 0.5
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 avp_real:
   embodiment_name: "DUAL_XARM_V6_REAL"
@@ -145,6 +161,7 @@ avp_real:
   brain_registry:
     - "avp:AVP"
     - "random_brain_adapter:RANDOM"
+    - "rosbag_player:ROSBAG"
 
   avp:
     avp_ip: "1.1.21.235"      # shown in the Tracking Streamer app
@@ -158,7 +175,7 @@ avp_real:
     scale: 1.0                  # arm travel per unit of wrist travel
     max_linear_speed: 0.08      # m/s of eef travel
     max_angular_speed: 0.8      # rad/s of eef rotation
-    max_finger_speed: 2.0       # rad/s, every hand joint
+    max_finger_speed: 1.0       # rad/s, every hand joint
     trajectory_lookahead: 2.0   # arm point duration, in waypoint periods; under 1 is stop-and-go
     stale_timeout: 0.2          # s without new data before holding
     ik_tolerance: 0.005         # m, residual that holds the arm
@@ -166,10 +183,21 @@ avp_real:
     # robot = gain * operator angle + offset, per joint Y of jointXY
     finger_gain: [1.0, 1.0, 1.0, 1.0]     # spread, then three bends
     finger_offset: [0.0, 0.0, 0.0, 0.0]
-    thumb_gain: [1.5, 1.0, 1.5, 1.5]      # bend whole thumb, rotate, two bends
+    thumb_gain: [1.0, 1.0, 1.0, 1.0]      # bend whole thumb, rotate (unused: follows joint 0), two bends
     thumb_offset: [0.0, 0.0, 0.0, 0.0]
 
+  rosbag_player:
+    bag_filename: "snack1.json"
+    topic_component_map:
+      - "/xarm7_left_controller/commands:left_arm"
+      - "/xarm7_right_controller/commands:right_arm"
+      - "/allegro_hand_position_effort_controller_l/commands:left_hand"
+      - "/allegro_hand_position_effort_controller_r/commands:right_hand"
+    seek_velocity: 0.2
+    seek_min_duration: 0.5
+
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 
 bottle_dummy:
@@ -197,6 +225,7 @@ bottle_dummy:
     seek_min_duration: 0.5
 
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 dual_arm:
   embodiment_name: "DUAL_PANDA"
@@ -209,6 +238,7 @@ dual_arm:
     - "manual_adapter:MANUAL"
     - "random_brain_adapter:RANDOM"
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 gr00t_franka_sim:
   embodiment_name: "SINGLE_PANDA_CAM"
@@ -224,6 +254,7 @@ gr00t_franka_sim:
     policy_port: "8888"
     default_command: "pick up the blue box"
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 multi_brain_test:
   # basic
@@ -250,6 +281,7 @@ multi_brain_test:
     default_command: "place the box on the tray"
 
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
 
 fr5_real:
   embodiment_name: "SINGLE_FR5"
@@ -261,4 +293,5 @@ fr5_real:
     - "manual_adapter:MANUAL"
 
   publish_rate_hz: 100
+  render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
   

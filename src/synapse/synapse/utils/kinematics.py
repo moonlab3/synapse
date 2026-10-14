@@ -6,7 +6,16 @@ targets) all used to carry privately. Adapters never touch jax directly:
 poses cross this boundary as [x, y, z, roll, pitch, yaw] lists and joints as
 plain position sequences.
 """
+import os
+
+# A 7-DOF solve is too small for the GPU: launch/sync overhead made it ~11x
+# slower than CPU (tools/bench_ik.py), and CPU also keeps JAX from preallocating
+# GPU memory Isaac Sim needs. Must be set before jax is first imported;
+# JAX_PLATFORMS=cuda in the environment overrides it.
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
 import jax.numpy as jnp
+import numpy as np
 import jax_dataclasses as jdc
 import jaxlie
 import jaxls
@@ -105,6 +114,7 @@ class ArmKinematics:
         self.robots = {}
         self.eef_frame = {}
         self.dof_indices = {}
+        self.dof_indices_np = {}
         self.dof_mask = {}
         self.current_eef_poses = {}
 
@@ -126,7 +136,8 @@ class ArmKinematics:
             # zero entry reads as "at the origin" and trips pose_bound on tick one.
 
             expected_dofs = self.robots[name].joints.num_actuated_joints
-            self.dof_indices[name] = jnp.array(cfg.get('joint_indices'), dtype=jnp.int32)
+            self.dof_indices_np[name] = np.array(cfg.get('joint_indices'), dtype=np.int32)
+            self.dof_indices[name] = jnp.asarray(self.dof_indices_np[name])
             self.dof_mask[name] = jnp.zeros(expected_dofs).at[self.dof_indices[name]].set(1.0)
 
             if terminal is not None:
@@ -162,6 +173,14 @@ class ArmKinematics:
         elif q.shape[0] < n:
             q = jnp.pad(q, (0, n - q.shape[0]))
         return jnp.zeros(self.robots[name].joints.num_actuated_joints).at[idx].set(q)
+
+    def to_component_positions(self, name: str, q: jnp.ndarray) -> list:
+        """Full-DOF vector -> this component's joint positions, as floats.
+
+        One device-to-host copy for the whole vector; indexing q per joint with
+        float(q[i]) would sync with the device once per joint instead.
+        """
+        return np.asarray(q)[self.dof_indices_np[name]].tolist()
 
     def eef_pose(self, name: str, positions) -> list:
         """Eef pose of one manipulator at the given joint positions. Pure: unlike

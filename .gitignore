@@ -5,3 +5,5 @@ log/
 __pycache__/
 resources/
 assets/
+avp_record.py
+avp_recording_20261008_113458.npz

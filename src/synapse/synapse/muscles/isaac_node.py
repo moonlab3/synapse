@@ -2,6 +2,7 @@
 
 import sys
 import os
+import time
 # --- 0. INJECT WORKSPACE ---
 # Force Isaac Sim's isolated Python to recognize your local ROS 2 workspace
 workspace_path = "/home/rog-sf/ws/synapse_ws/install/synapse/lib/python3.12/site-packages"
@@ -10,8 +11,8 @@ if workspace_path not in sys.path:
 
 from synapse.utils.embodiment_parser import EmbodimentParser
 
-# current_domain = os.environ.get("ROS_DOMAIN_ID", "44")
-current_domain = os.environ.get("ROS_DOMAIN_ID", "0")
+current_domain = os.environ.get("ROS_DOMAIN_ID", "44")
+# current_domain = os.environ.get("ROS_DOMAIN_ID", "0")
 os.environ["ROS_DOMAIN_ID"] = current_domain
 
 # --- 1. THE SELF-RESTARTING SCRUBBER & REBUILDER ---
@@ -75,6 +76,14 @@ class IsaacNode(Node):
         )
 
         self.publish_rate = self.get_parameter('publish_rate_hz').value
+        # Physics steps at publish_rate; the viewport and cameras only need
+        # render_rate, so most physics steps skip rendering entirely.
+        self.render_rate = self.get_parameter('render_rate_hz').value or 20
+        self.render_every = max(1, round(self.publish_rate / self.render_rate))
+        if self.publish_rate % self.render_rate != 0:
+            self.get_logger().warn(
+                f"render_rate_hz {self.render_rate} does not divide publish_rate_hz {self.publish_rate}; "
+                f"rendering every {self.render_every} physics steps")
         embodiment_name = self.get_parameter('embodiment_name').value
 
         parser = EmbodimentParser(embodiment_name)
@@ -86,6 +95,7 @@ class IsaacNode(Node):
             topic = cfg.get('topic', f'/synapse/camera/{name}/image_raw')
             self.camera_publishers[name] = self.create_publisher(Image, topic, 10)
         self.cameras = {}
+        self.camera_publish_every = {}
 
         self.articulation_groups = parser.get_articulations()  # new nested schema only
         flat_robots = parser.get_robots()                  # flattened, all components
@@ -156,7 +166,8 @@ class IsaacNode(Node):
         self.get_logger().info(f"Opening stage: {self.usd_path}")
         omni.usd.get_context().open_stage(self.usd_path)
         dt = 1.0 / self.publish_rate
-        self.world = World(physics_dt=dt, rendering_dt=dt, stage_units_in_meters=1.0, backend="torch", device="cuda:0")
+        render_dt = dt * self.render_every
+        self.world = World(physics_dt=dt, rendering_dt=render_dt, stage_units_in_meters=1.0, backend="torch", device="cuda:0")
         self.world._physics_context = PhysicsContext(prim_path="/World/PhysicsScene")
 
         self.get_logger().info("Articulation Initializing =================")
@@ -205,6 +216,9 @@ class IsaacNode(Node):
 
             cam = Camera(**camera_kwargs)
             cam.initialize()
+            # Publish on every Nth render step, so a camera slower than the
+            # render rate does not resend the same frame.
+            self.camera_publish_every[name] = max(1, round(self.render_rate / camera_kwargs['frequency']))
 
             if 'focal_length' in cfg:
                 cam.set_focal_length(cfg['focal_length'])
@@ -224,7 +238,31 @@ class IsaacNode(Node):
         for i in range(n):
             self.target_joints[group_name][joint_indices[i]] = msg.position[i] 
 
+    def _publish_cameras(self, render_index: int):
+        for name, cam in self.cameras.items():
+            if name not in self.camera_publishers or render_index % self.camera_publish_every[name]:
+                continue
+            frame_rgba = self._to_host_numpy(cam.get_rgba())
+            if frame_rgba is not None and len(frame_rgba.shape) == 3 and frame_rgba.shape[2] == 4:
+                height, width = frame_rgba.shape[:2]
+                img_msg = Image()
+                img_msg.header.stamp = self.get_clock().now().to_msg()
+                img_msg.header.frame_id = name
+                img_msg.height = height
+                img_msg.width = width
+                img_msg.encoding = "rgb8"
+                img_msg.is_bigendian = 0
+                img_msg.step = width * 3
+                # ascontiguousarray copies once (the RGB slice is strided); astype
+                # only converts when the annotator did not hand back uint8.
+                img_msg.data = np.ascontiguousarray(frame_rgba[:, :, :3]).astype(np.uint8, copy=False).tobytes()
+                self.camera_publishers[name].publish(img_msg)
+
     def spin_and_step(self):
+        physics_dt = 1.0 / self.publish_rate
+        step_count = 0
+        next_tick = time.perf_counter()
+
         while simulation_app.is_running():
             rclpy.spin_once(self, timeout_sec=0.0)
 
@@ -240,8 +278,10 @@ class IsaacNode(Node):
                     )
                     articulation.set_joint_position_targets(target_tensor.reshape(1, -1))
 
-                self.world.step(render=True)
-                simulation_app.update()
+                # Physics only: step(render=True) runs app.update(), which steps
+                # physics again on top of it. Rendering is a separate render() call.
+                self.world.step(render=False)
+                step_count += 1
 
                 for group_name, articulation in self.articulations.items():
                     current_positions = self._to_host_numpy(articulation.get_joint_positions()[0])
@@ -252,27 +292,23 @@ class IsaacNode(Node):
                     msg.position = current_positions.tolist()
                     self.pub_joint_states[group_name].publish(msg)
 
-                for name, cam in self.cameras.items():
-                    frame_rgba = cam.get_rgba()
-                    if frame_rgba is not None and len(frame_rgba.shape) == 3 and frame_rgba.shape[2] == 4:
-                        height, width = frame_rgba.shape[:2]
-                        frame_rgb = frame_rgba[:, :, :3]
-                        img_msg = Image()
-                        img_msg.header.stamp = self.get_clock().now().to_msg()
-                        img_msg.header.frame_id = name
-                        img_msg.height = height
-                        img_msg.width = width
-                        img_msg.encoding = "rgb8"
-                        img_msg.is_bigendian = 0
-                        img_msg.step = width * 3
-                        img_msg.data = frame_rgb.astype(np.uint8).tobytes()
-                        if name in self.camera_publishers:
-                            self.camera_publishers[name].publish(img_msg)
-
+                if step_count % self.render_every == 0:
+                    self.world.render()  # renders without stepping physics
+                    self._publish_cameras(step_count // self.render_every)
+                tick_dt = physics_dt
             else:
                 self.world.render()
-                simulation_app.update()
-            
+                tick_dt = physics_dt * self.render_every
+
+            # Without a render every step nothing throttles the loop, so pace it
+            # to wall clock. Falling behind resyncs instead of bursting to catch up.
+            next_tick += tick_dt
+            delay = next_tick - time.perf_counter()
+            if delay > 0:
+                time.sleep(delay)
+            elif delay < -tick_dt:
+                next_tick = time.perf_counter()
+
 
 def main(args=None):
     rclpy.init(args=args)

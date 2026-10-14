@@ -119,12 +119,11 @@ class MoveAdapter(BaseBrainAdapter):
         """Chain solves: one Gauss-Newton pass undershoots badly when the seed is
         far from the target, so re-seed it with its own result until the residual
         settles. Returns (full-DOF solution, residual in metres)."""
-        indices = self.kin.dof_indices[name].tolist()
         q, residual = seed, float('inf')
         for _ in range(max(1, self.ik_iterations)):
             q = self.kin.solve(name, pose, q)
             residual = pose_distance(pose, self.kin.eef_pose(
-                name, [float(q[i]) for i in indices]))[0]
+                name, self.kin.to_component_positions(name, q)))[0]
             if residual <= self.ik_tolerance:
                 break
         return q, residual
@@ -168,7 +167,7 @@ class MoveAdapter(BaseBrainAdapter):
                 continue
 
             solved, residual = self._solve(name, value, self.seeds[name])
-            positions = [float(solved[i]) for i in self.kin.dof_indices[name].tolist()]
+            positions = self.kin.to_component_positions(name, solved)
 
             # Holding beats driving the arm at a pose IK could not reach -- the
             # Action's failure condition takes it from here.

@@ -19,6 +19,7 @@ from synapse.utils.trajectory_builder import build_target_messages
 import functools
 import py_trees
 import os
+import time
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -149,11 +150,65 @@ class SynapseMainNode(Node):
         self.restart_requested = False
         self.mode = None  # None (paused) | Intent.START | Intent.RUN_SCENARIO
         self.tick_freq = tick_freq
+
+        # Timing instrumentation, off unless timing_log_period_s > 0.
+        self.timing_log_period = self.get_parameter('timing_log_period_s').value or 0.0
+        self._last_tick_time = None
+        self._last_timing_log = time.perf_counter()
+        self._tick_intervals = []
+        self._infer_durations = []  # appended from the inference thread
+
+        self.warned_encodings = set()
         self.timer = self.create_timer(1.0 / tick_freq, self.tick)
 
+    # encoding -> (channels, reorder to RGB)
+    IMAGE_ENCODINGS = {
+        'rgb8': (3, False), 'rgba8': (4, False),
+        'bgr8': (3, True), 'bgra8': (4, True),
+    }
+
     def image_callback(self, msg: Image, topic_name: str):
-        frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
-        self.latest_images[topic_name] = frame
+        layout = self.IMAGE_ENCODINGS.get(msg.encoding)
+        if layout is None:
+            if msg.encoding not in self.warned_encodings:
+                self.warned_encodings.add(msg.encoding)
+                self.terminal_ui.log(f"Unsupported image encoding '{msg.encoding}' on {topic_name}, skipping",
+                                     LogLevel.WARN)
+            return
+        channels, bgr = layout
+        # Rows can be padded past width * channels, so slice by step first.
+        step = msg.step or msg.width * channels  # some publishers leave step unset
+        rows = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, step))
+        frame = rows[:, :msg.width * channels].reshape((msg.height, msg.width, channels))
+        frame = frame[:, :, 2::-1] if bgr else frame[:, :, :3]
+        # rgb8 with no padding stays a zero-copy view; everything else is strided.
+        self.latest_images[topic_name] = np.ascontiguousarray(frame)
+
+    def _timed_infer(self, adapter, historical_obs, inference_option):
+        start = time.perf_counter()
+        try:
+            return adapter.infer(historical_obs, inference_option)
+        finally:
+            self._infer_durations.append(time.perf_counter() - start)
+
+    def _record_tick_timing(self):
+        now = time.perf_counter()
+        if self._last_tick_time is not None:
+            self._tick_intervals.append(now - self._last_tick_time)
+        self._last_tick_time = now
+
+        if now - self._last_timing_log < self.timing_log_period:
+            return
+        self._last_timing_log = now
+        intervals, self._tick_intervals = np.array(self._tick_intervals) * 1000, []
+        durations, self._infer_durations = np.array(self._infer_durations) * 1000, []
+        if intervals.size:
+            self.terminal_ui.debug(
+                f"⏱️ tick interval (target {1000 / self.tick_freq:.1f} ms): mean {intervals.mean():.1f}, "
+                f"p99 {np.percentile(intervals, 99):.1f}, max {intervals.max():.1f} ms")
+        if durations.size:
+            self.terminal_ui.debug(
+                f"⏱️ inference x{durations.size}: mean {durations.mean():.1f}, max {durations.max():.1f} ms")
 
     def obs_callback(self, msg: JointState, group_name: str):
         # Receives joint states for one physical articulation and splits the
@@ -260,6 +315,9 @@ class SynapseMainNode(Node):
                 self.to_brain = self.last_command_to_show = event.payload
 
     def tick(self):
+        if self.timing_log_period > 0:
+            self._record_tick_timing()
+
         self.handle_ui_event(self.terminal_ui.poll())
 
         if self.mode is None:
@@ -296,7 +354,8 @@ class SynapseMainNode(Node):
                 )
                 self.restart_requested = False
                 self.inference_future = self.inference_executor.submit(
-                    self.brain_adapters[self.running_brain].infer,
+                    self._timed_infer,
+                    self.brain_adapters[self.running_brain],
                     historical_obs,
                     inference_option
                     )

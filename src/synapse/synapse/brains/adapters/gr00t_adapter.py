@@ -203,13 +203,10 @@ class GR00TAdapter(BaseBrainAdapter):
                     # Map gripper back to hardware limits
                     finger_target = float(np.clip(gripper_cmd, 0.0, 1.0) * 0.04)
 
-                    idx_list = self.kin.dof_indices[name].tolist()
-                    original_length = len(original_js.position)
+                    solved = self.kin.to_component_positions(name, optimized_q)
                     final_positions = list(original_js.position)
-
-                    for local_i, global_i in enumerate(idx_list):
-                        if local_i < original_length:
-                            final_positions[local_i] = float(optimized_q[global_i])
+                    n = min(len(final_positions), len(solved))
+                    final_positions[:n] = solved[:n]
                     
                     if len(final_positions) >= 8:
                         final_positions[7] = finger_target
