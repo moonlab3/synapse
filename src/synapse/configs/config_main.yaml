@@ -302,7 +302,7 @@ fr5_real:
 # Start the robot at the training start pose (spec.json side_specs.*.start_joint_pos) first;
 # the adapter refuses to run when it is more than max_start_error rad away.
 rl_sim:
-  embodiment_name: "DUAL_XARM_V6"
+  embodiment_name: "DUAL_XARM_V6_RL"
   bt_tick_frequency_hz: 60          # >= 2x the 30 Hz policy; the adapter holds targets in between
   obs_buffer_window_size: 2
   muscle_option: "ISAAC"

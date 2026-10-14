@@ -1,4 +1,4 @@
-DUAL_XARM_V6:
+DUAL_XARM_V6: &dual_xarm_v6
   table_height: 0.85
   usd_filename: "dual_xarm7_v6f.usd"
   manipulator_step_size: 0.1
@@ -305,3 +305,76 @@ SINGLE_FR5:
           target:
             ISAAC: "/synapse/target"
             DUMMY: "/syanapse/target"
+
+
+# DUAL_XARM_V6 for sim checks of rl-platform policies: robots start at the policy's training
+# start pose (from rl-platform exported spec.json) and a baseball rests in the right palm.
+DUAL_XARM_V6_RL:
+  <<: *dual_xarm_v6
+  initial_joint_positions:
+    xarm_v6_right:
+      joint1: 0.2691
+      joint2: 0.3973
+      joint3: 0.5236
+      joint4: 0.9849
+      joint5: 3.9448
+      joint6: 0.9428
+      joint7: -0.7709
+      joint00: 1.2000
+      joint10: 0.0000
+      joint20: 0.0000
+      joint30: 0.0000
+      joint40: 0.0000
+      joint01: 0.5000
+      joint11: 0.8000
+      joint21: 0.8000
+      joint31: 0.8000
+      joint41: 0.8000
+      joint02: 0.4000
+      joint12: 0.8000
+      joint22: 0.8000
+      joint32: 0.8000
+      joint42: 0.8000
+      joint03: 0.4000
+      joint13: 0.8000
+      joint23: 0.8000
+      joint33: 0.8000
+      joint43: 0.8000
+    xarm_v6_left:
+      joint1: 0.0000
+      joint2: 0.2000
+      joint3: 0.0000
+      joint4: 1.2000
+      joint5: 0.0000
+      joint6: 1.0000
+      joint7: 0.0000
+      joint00: 0.0000
+      joint10: 0.0000
+      joint20: 0.0000
+      joint30: 0.0000
+      joint40: 0.0000
+      joint01: 0.0000
+      joint11: 0.0000
+      joint21: 0.0000
+      joint31: 0.0000
+      joint41: 0.0000
+      joint02: 0.0000
+      joint12: 0.0000
+      joint22: 0.0000
+      joint32: 0.0000
+      joint42: 0.0000
+      joint03: 0.0000
+      joint13: 0.0000
+      joint23: 0.0000
+      joint33: 0.0000
+      joint43: 0.0000
+  props:
+    ball:
+      type: sphere
+      radius: 0.0365      # regulation baseball
+      mass: 0.145
+      position: [0.131, -0.109, 0.920]   # rests in the right palm at the start pose (rl-platform poses.py)
+      static_friction: 0.8
+      dynamic_friction: 0.6
+      restitution: 0.3
+      topic: /synapse/sim/ball/position
