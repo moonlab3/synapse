@@ -295,3 +295,57 @@ fr5_real:
   publish_rate_hz: 100
   render_rate_hz: 20        # must divide publish_rate_hz and be a multiple of every camera frequency
   
+
+
+# --- rl-platform student policy (bimanual ball handover) -------------------------------------
+# Policy + spec come from ~/ws/rl-platform (scripts/export_policy.py, export_spec.py).
+# Start the robot at the training start pose (spec.json side_specs.*.start_joint_pos) first;
+# the adapter refuses to run when it is more than max_start_error rad away.
+rl_sim:
+  embodiment_name: "DUAL_XARM_V6_RL"
+  bt_tick_frequency_hz: 60          # >= 2x the 30 Hz policy; the adapter holds targets in between
+  obs_buffer_window_size: 2
+  muscle_option: "ISAAC"
+
+  brain_registry:
+    - "rl_adapter:RL"
+    - "manual_adapter:MANUAL"
+
+  rl_adapter:
+    export_dir: "~/ws/rl-platform/exported/handover_student_v2"
+    rl_platform_path: "~/ws/rl-platform/source/rl_platform"
+    side_map:
+      - "right:right_arm,right_hand"
+      - "left:left_arm,left_hand"
+    ball_topic: "/synapse/sim/ball/position"   # ground truth from isaac_node props
+    action_gain: 1.0
+    max_start_error: 0.15
+
+  publish_rate_hz: 120
+  render_rate_hz: 30
+
+rl_real:
+  embodiment_name: "DUAL_XARM_V6_REAL"
+  bt_tick_frequency_hz: 60
+  obs_buffer_window_size: 2
+  muscle_option: "REAL_ROBOT"
+  move_time_sec: 0.05
+  min_move_time_sec: 0.03
+
+  brain_registry:
+    - "rl_adapter:RL"
+    - "manual_adapter:MANUAL"
+
+  rl_adapter:
+    export_dir: "~/ws/rl-platform/exported/handover_student_v2"
+    rl_platform_path: "~/ws/rl-platform/source/rl_platform"
+    side_map:
+      - "right:right_arm,right_hand"
+      - "left:left_arm,left_hand"
+    ball_topic: "/rl/ball_position"            # rl-platform D455 ball node (table frame)
+    action_gain: 0.3                           # first runs: 30% joint speed; raise step by step
+    max_start_error: 0.10
+
+  publish_rate_hz: 100
+  render_rate_hz: 20
+

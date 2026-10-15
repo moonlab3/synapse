@@ -5,6 +5,7 @@ from .adapters.manual_adapter import ManualAdapter
 from .adapters.move_adapter import MoveAdapter
 from .adapters.random_brain_adapter import RandomBrainAdapter
 from .adapters.rosbag_adapter import RosbagAdapter
+from .adapters.rl_adapter import RLAdapter
 
 
 class BrainSelector:
@@ -17,6 +18,7 @@ class BrainSelector:
         'ROSBAG': (RosbagAdapter, 'rosbag_adapter'),
         'MOVE': (MoveAdapter, 'move_adapter'),
         'AVP': (AvpTeleopAdapter, 'avp_adapter'),
+        'RL': (RLAdapter, 'rl_adapter'),
     }
 
     @staticmethod

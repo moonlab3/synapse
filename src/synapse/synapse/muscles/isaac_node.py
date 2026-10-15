@@ -61,6 +61,9 @@ from isaacsim.core.prims import Articulation
 from isaacsim.core.api.physics_context import PhysicsContext
 # from omni.isaac.sensor import Camera
 from isaacsim.sensors.camera import Camera
+from isaacsim.core.api.objects import DynamicSphere
+from isaacsim.core.api.materials import PhysicsMaterial
+from geometry_msgs.msg import PointStamped
 import omni.usd
 import functools
 import torch
@@ -89,6 +92,15 @@ class IsaacNode(Node):
         parser = EmbodimentParser(embodiment_name)
         self.usd_path = assets_get_path(parser.get_config().get('usd_filename'))
         self.camera_cfg = parser.get_cameras()
+        # Optional (sim checks of learned policies): start pose per group and dynamic props
+        # whose ground-truth position is published, e.g. a ball for rl-platform policies.
+        self.initial_joint_cfg = parser.get_config().get('initial_joint_positions', {}) or {}
+        self.prop_cfg = parser.get_config().get('props', {}) or {}
+        self.props = {}
+        self.prop_publishers = {
+            name: self.create_publisher(PointStamped, cfg.get('topic', f'/synapse/sim/{name}/position'), 10)
+            for name, cfg in self.prop_cfg.items()
+        }
 
         self.camera_publishers = {}
         for name, cfg in self.camera_cfg.items():
@@ -150,7 +162,9 @@ class IsaacNode(Node):
                 rclpy.shutdown()
             case "RESET":
                 self.get_logger().info("Received RESET command. Resetting robot to initial pose")
-                self.target_joints = self.initial_positions.copy()
+                self.target_joints = {k: v.copy() for k, v in self.initial_positions.items()}
+                if self.initial_joint_cfg or self.props:
+                    self._teleport_to_initial()  # a prop dropped into a moving hand would fall
                 self.reset_process = 0
 
             case _:
@@ -184,6 +198,23 @@ class IsaacNode(Node):
 
             self.articulations[group_name] = articulation
 
+        for name, cfg in self.prop_cfg.items():
+            if cfg.get('type', 'sphere') != 'sphere':
+                raise ValueError(f"prop '{name}': only type 'sphere' is supported")
+            material = PhysicsMaterial(
+                prim_path=f"/World/props/{name}_material",
+                static_friction=cfg.get('static_friction', 0.8),
+                dynamic_friction=cfg.get('dynamic_friction', 0.6),
+                restitution=cfg.get('restitution', 0.3),
+            )
+            self.props[name] = self.world.scene.add(DynamicSphere(
+                prim_path=f"/World/props/{name}", name=name,
+                position=np.array(cfg['position'], dtype=float), radius=float(cfg['radius']),
+                mass=float(cfg['mass']), color=np.array(cfg.get('color', [0.95, 0.95, 0.9])),
+                physics_material=material,
+            ))
+            self.get_logger().info(f"Prop [{name}] added at {cfg['position']}")
+
         self.world.reset()
         self.get_logger().info(f"Isaac Sim World reset")
 
@@ -192,6 +223,8 @@ class IsaacNode(Node):
             self.get_logger().info(f"Articulation [{group_name}] initialized - {articulation.num_dof}, {articulation.dof_names}")
 
             init_pos = self._to_host_numpy(articulation.get_joint_positions()[0])
+            for joint, value in self.initial_joint_cfg.get(group_name, {}).items():
+                init_pos[list(articulation.dof_names).index(joint)] = value
 
             self.initial_positions[group_name] = init_pos
             if hasattr(init_pos, 'cpu'):
@@ -199,6 +232,7 @@ class IsaacNode(Node):
             self.target_joints[group_name] = np.array(init_pos, dtype=np.float32)
 
             self.joint_names[group_name] = articulation.dof_names
+        self._teleport_to_initial()
 
         # LOADING CAMERA LOADING CAMERA
         for name, cfg in self.camera_cfg.items():
@@ -230,6 +264,30 @@ class IsaacNode(Node):
         # LOADING CAMERA LOADING CAMERA
 
         simulation_app.update()
+    def _teleport_to_initial(self):
+        """Put groups listed in initial_joint_positions at their start pose, and props back at theirs."""
+        device = self.world.get_physics_context().device
+        for group_name in self.initial_joint_cfg:
+            q = torch.tensor(self.initial_positions[group_name], dtype=torch.float32, device=device).reshape(1, -1)
+            self.articulations[group_name].set_joint_positions(q)
+            self.articulations[group_name].set_joint_velocities(torch.zeros_like(q))
+            self.articulations[group_name].set_joint_position_targets(q)
+            self.target_joints[group_name] = np.array(self.initial_positions[group_name], dtype=np.float32)
+        for name, prop in self.props.items():
+            prop.set_world_pose(position=np.array(self.prop_cfg[name]['position'], dtype=float))
+            prop.set_linear_velocity(np.zeros(3))
+            prop.set_angular_velocity(np.zeros(3))
+
+    def _publish_props(self):
+        for name, prop in self.props.items():
+            pos, _ = prop.get_world_pose()
+            pos = self._to_host_numpy(pos).reshape(-1)
+            msg = PointStamped()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = 'world'
+            msg.point.x, msg.point.y, msg.point.z = (float(v) for v in pos[:3])
+            self.prop_publishers[name].publish(msg)
+
     def target_callback(self, msg: JointState, component_name: str, joint_indices: list):
         if not msg.position or self.reset_process < 100 or not joint_indices:
             return
@@ -291,6 +349,7 @@ class IsaacNode(Node):
                     msg.name = self.joint_names[group_name]
                     msg.position = current_positions.tolist()
                     self.pub_joint_states[group_name].publish(msg)
+                self._publish_props()
 
                 if step_count % self.render_every == 0:
                     self.world.render()  # renders without stepping physics
