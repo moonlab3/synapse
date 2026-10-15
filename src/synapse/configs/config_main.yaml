@@ -119,7 +119,7 @@ avp_test:
     - "rosbag_player:ROSBAG"
 
   avp:
-    avp_ip: "1.1.21.235"      # shown in the Tracking Streamer app
+    avp_ip: "1.1.21.209"      # shown in the Tracking Streamer app
     arm_map:                    # AVP hand : component
       - "left:left_arm"
       - "right:right_arm"
@@ -164,7 +164,7 @@ avp_real:
     - "rosbag_player:ROSBAG"
 
   avp:
-    avp_ip: "1.1.21.235"      # shown in the Tracking Streamer app
+    avp_ip: "1.1.21.209"      # shown in the Tracking Streamer app
     arm_map:                    # AVP hand : component
       - "left:left_arm"
       - "right:right_arm"
