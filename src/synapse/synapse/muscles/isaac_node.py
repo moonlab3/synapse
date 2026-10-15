@@ -273,10 +273,12 @@ class IsaacNode(Node):
             self.articulations[group_name].set_joint_velocities(torch.zeros_like(q))
             self.articulations[group_name].set_joint_position_targets(q)
             self.target_joints[group_name] = np.array(self.initial_positions[group_name], dtype=np.float32)
+        # the World uses the torch backend: prop setters take torch tensors on the physics device
         for name, prop in self.props.items():
-            prop.set_world_pose(position=np.array(self.prop_cfg[name]['position'], dtype=float))
-            prop.set_linear_velocity(np.zeros(3))
-            prop.set_angular_velocity(np.zeros(3))
+            pos = torch.tensor(self.prop_cfg[name]['position'], dtype=torch.float32, device=device)
+            prop.set_world_pose(position=pos)
+            prop.set_linear_velocity(torch.zeros(3, dtype=torch.float32, device=device))
+            prop.set_angular_velocity(torch.zeros(3, dtype=torch.float32, device=device))
 
     def _publish_props(self):
         for name, prop in self.props.items():
