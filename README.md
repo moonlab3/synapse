@@ -66,6 +66,12 @@ ros2 launch synapse synapse.launch.py config:=gr00t_franka_sim debug:=true
 
 ### 1. `config_main.yaml` — 실행 프로필
 
+파일 맨 위의 `paths:` 블록은 모든 프로필이 공유하는 외부 경로입니다(`~`, `${ENV}` 사용 가능). 프로필 안에 `paths:`를 두면 해당 키만 덮어씁니다.
+
+- `isaac_sim_root`: Isaac Sim 설치 경로. ISAAC muscle은 이 경로의 `python.sh`로 실행됩니다.
+- `groot`, `rl_platform`: GR00T / RL 어댑터가 import할 저장소 경로.
+- `assets`(선택): 생략하면 패키지 위쪽의 `assets/` 디렉터리를 찾습니다.
+
 맨 위의 `default` 같은 프로필 아래에서 실행 구성을 선택합니다. 보통 다음 값을 수정합니다.
 
 - `embodiment_name`: 사용할 로봇 구성을 `embodiment_configs.yaml`의 키와 일치시킵니다.

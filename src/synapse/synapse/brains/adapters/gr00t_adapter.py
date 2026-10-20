@@ -1,36 +1,27 @@
 from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 import numpy as np
-import os
 import sys
 from sensor_msgs.msg import JointState
 from synapse.utils.embodiment_parser import EmbodimentParser
 from synapse.utils.kinematics import ArmKinematics
 
 # ==========================================
-# ⚡ GR00T Policy Client Setup
-# ==========================================
-groot_path = os.path.abspath("/home/rog-sf/vla/Isaac-GR00T")
-if groot_path not in sys.path:
-    sys.path.append(groot_path)
-
-try:
-    from gr00t.policy.server_client import PolicyClient
-except ImportError:
-    print("⚠️ WARNING: Could not import GR00T PolicyClient. Ensure the path is correct.")
-    PolicyClient = None
-
-# ==========================================
 # 🧠 VLA Brain Adapter (GR00T)
 # ==========================================
 class GR00TAdapter(BaseBrainAdapter):
-    def __init__(self, terminal, node_name="gr00t_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
-        
-        # 1. Initialize GR00T Policy Client
-        ip = self.get_parameter(f"{self.get_name()}.policy_ip").value
-        port = self.get_parameter(f"{self.get_name()}.policy_port").value
-        self.default_command = self.get_parameter(f"{self.get_name()}.default_command").value
+    def __init__(self, terminal, name="gr00t_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
+
+        # 1. Initialize GR00T Policy Client (repo location: paths.groot in config_main.yaml)
+        groot_path = self.path('groot')
+        if groot_path not in sys.path:
+            sys.path.append(groot_path)
+        from gr00t.policy.server_client import PolicyClient
+
+        ip = self.param('policy_ip')
+        port = self.param('policy_port')
+        self.default_command = self.param('default_command')
 
         self.client = PolicyClient(ip, port)
         if not self.client.ping():

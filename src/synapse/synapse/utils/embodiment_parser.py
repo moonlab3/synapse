@@ -1,6 +1,7 @@
 import yaml
 import os
-from pathlib import Path
+
+from synapse.utils.paths import synapse_share_dir
 
 DEFAULT_MSG_TYPE = 'JointState'
 
@@ -17,13 +18,7 @@ class EmbodimentParser:
     def __init__(self, embodiment_name: str):
         self.embodiment_name = embodiment_name
         
-        share_dir = "/home/rog-sf/ws/synapse_ws/install/synapse/share/synapse"
-        current_file = Path(__file__).resolve()
-        dynamic_share = os.path.join(current_file.parents[5], 'share', 'synapse')
-        if os.path.exists(os.path.join(dynamic_share, 'configs', 'embodiment_configs.yaml')):
-            share_dir = dynamic_share
-            
-        self.config_path = os.path.join(share_dir, 'configs', 'embodiment_configs.yaml')
+        self.config_path = os.path.join(synapse_share_dir(), 'configs', 'embodiment_configs.yaml')
         self.full_config = self._load_file()
         self.embodiment_config = self._extract_embodiment()
 

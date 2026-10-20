@@ -2,11 +2,11 @@ from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 
 class DummyBrainAdapter(BaseBrainAdapter):
-    def __init__(self, terminal, node_name="dummy_brain_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="dummy_brain_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
 
         self.terminal.log(
-            f"🧠 [{node_name}] initialized. Yielding target control to external ROS 2 applications."
+            f"🧠 [{self.name}] initialized. Yielding target control to external ROS 2 applications."
         )
 
     def _format_for_policy(self, obs_history: list, inference_option: InferenceOption) -> dict:

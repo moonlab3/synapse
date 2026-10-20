@@ -1,37 +1,31 @@
-from .adapters.avp_adapter import AvpTeleopAdapter
-from .adapters.dummy_brain_adapter import DummyBrainAdapter
-from .adapters.gr00t_adapter import GR00TAdapter
-from .adapters.manual_adapter import ManualAdapter
-from .adapters.move_adapter import MoveAdapter
-from .adapters.random_brain_adapter import RandomBrainAdapter
-from .adapters.rosbag_adapter import RosbagAdapter
-from .adapters.rl_adapter import RLAdapter
+import importlib
 
 
 class BrainSelector:
-    # brain_type -> (class, default node name). A new adapter is one line.
+    # brain_type -> (module under .adapters, class, default name). A new adapter is one line.
+    # Modules are imported on first use, so only the types in brain_registry are ever loaded
+    # (GR00T, RL etc. pull in heavy or path-dependent packages).
     BRAINS = {
-        'MANUAL': (ManualAdapter, 'manual_adapter'),
-        'GR00T': (GR00TAdapter, 'gr00t_adapter'),
-        'RANDOM': (RandomBrainAdapter, 'random_brain_adapter'),
-        'DUMMY': (DummyBrainAdapter, 'dummy_brain_adapter'),
-        'ROSBAG': (RosbagAdapter, 'rosbag_adapter'),
-        'MOVE': (MoveAdapter, 'move_adapter'),
-        'AVP': (AvpTeleopAdapter, 'avp_adapter'),
-        'RL': (RLAdapter, 'rl_adapter'),
+        'MANUAL': ('manual_adapter', 'ManualAdapter', 'manual_adapter'),
+        'GR00T': ('gr00t_adapter', 'GR00TAdapter', 'gr00t_adapter'),
+        'RANDOM': ('random_brain_adapter', 'RandomBrainAdapter', 'random_brain_adapter'),
+        'DUMMY': ('dummy_brain_adapter', 'DummyBrainAdapter', 'dummy_brain_adapter'),
+        'ROSBAG': ('rosbag_adapter', 'RosbagAdapter', 'rosbag_adapter'),
+        'MOVE': ('move_adapter', 'MoveAdapter', 'move_adapter'),
+        'AVP': ('avp_adapter', 'AvpTeleopAdapter', 'avp_adapter'),
+        'RL': ('rl_adapter', 'RLAdapter', 'rl_adapter'),
     }
 
     @staticmethod
-    def get_brain(terminal, brain_type: str, node_name: str = None, parameter_overrides: list = None):
+    def get_brain(terminal, brain_type: str, ros_node, params: dict, name: str = None):
         entry = BrainSelector.BRAINS.get(brain_type.upper())
         if entry is None:
             return None
 
-        brain_cls, default_node_name = entry
+        module_name, class_name, default_name = entry
         try:
-            return brain_cls(
-                terminal,
-                node_name=node_name if node_name else default_node_name,
-                parameter_overrides=parameter_overrides)
+            module = importlib.import_module(f'.adapters.{module_name}', __package__)
+            brain_cls = getattr(module, class_name)
+            return brain_cls(terminal, name or default_name, params, ros_node)
         except Exception as e:
-            raise ValueError(f"❌❌ Error initializing brain of type {brain_type}: {e}")
+            raise ValueError(f"❌❌ Error initializing brain of type {brain_type}: {e}") from e

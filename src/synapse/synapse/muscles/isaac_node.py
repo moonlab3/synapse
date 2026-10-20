@@ -1,12 +1,15 @@
-#!/home/rog-sf/installs/isaacsim_6/python.sh
+#!/usr/bin/env python3
+# Runs in Isaac Sim's Python: synapse.launch.py starts it through
+# <paths.isaac_sim_root>/python.sh, which also exports ISAAC_PATH.
 
 import sys
 import os
 import time
 # --- 0. INJECT WORKSPACE ---
-# Force Isaac Sim's isolated Python to recognize your local ROS 2 workspace
-workspace_path = "/home/rog-sf/ws/synapse_ws/install/synapse/lib/python3.12/site-packages"
-if workspace_path not in sys.path:
+# Force Isaac Sim's isolated Python to recognize your local ROS 2 workspace.
+# The launch file passes the install's site-packages (the scrub below drops it from PYTHONPATH).
+workspace_path = os.environ.get('SYNAPSE_PYTHONPATH')
+if workspace_path and workspace_path not in sys.path:
     sys.path.insert(0, workspace_path)
 
 from synapse.utils.embodiment_parser import EmbodimentParser
@@ -17,6 +20,10 @@ os.environ["ROS_DOMAIN_ID"] = current_domain
 
 # --- 1. THE SELF-RESTARTING SCRUBBER & REBUILDER ---
 if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
+    ros_distro = os.environ.get('ROS_DISTRO', 'jazzy')  # read before the scrub deletes it
+    if 'ISAAC_PATH' not in os.environ:
+        sys.exit("❌ ISAAC_PATH is not set: run isaac_node through Isaac Sim's python.sh")
+
     for key in list(os.environ.keys()):
         if any(trigger in key for trigger in ['ROS', 'AMENT', 'RMW']):
             del os.environ[key]
@@ -24,11 +31,11 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
     for path_var in ['LD_LIBRARY_PATH', 'PYTHONPATH']:
         if path_var in os.environ:
             old_path = os.environ[path_var]
-            new_path = ':'.join([p for p in old_path.split(':') if 'ros/jazzy' not in p and 'python3.12' not in p])
+            new_path = ':'.join([p for p in old_path.split(':') if f'ros/{ros_distro}' not in p and 'python3.12' not in p])
             os.environ[path_var] = new_path
 
-    isaac_ros_lib = "/home/rog-sf/installs/isaacsim_6/exts/isaacsim.ros2.core/jazzy/lib"
-    os.environ['ROS_DISTRO'] = 'jazzy'
+    isaac_ros_lib = os.path.join(os.environ['ISAAC_PATH'], 'exts', 'isaacsim.ros2.core', ros_distro, 'lib')
+    os.environ['ROS_DISTRO'] = ros_distro
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_fastrtps_cpp'
     
     current_ld = os.environ.get('LD_LIBRARY_PATH', '')

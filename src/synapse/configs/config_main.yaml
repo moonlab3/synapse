@@ -1,3 +1,11 @@
+# Shared by every profile below (the launch file merges it in; a profile may override
+# single keys with its own paths: block). Values accept ~ and ${ENV}.
+paths:
+  isaac_sim_root: "~/installs/isaacsim_6"          # holds python.sh; ISAAC muscle runs through it
+  groot: "~/vla/Isaac-GR00T"                       # GR00T adapter imports gr00t from here
+  rl_platform: "~/ws/rl-platform/source/rl_platform"  # RL adapter imports rl_platform from here
+  # assets: "~/ws/synapse_ws/assets"               # default: the assets/ dir above the package
+
 default:
   obs_buffer_window_size: 20
   bt_tick_frequency_hz: 50
@@ -313,7 +321,6 @@ rl_sim:
 
   rl_adapter:
     export_dir: "~/ws/rl-platform/exported/handover_student_v2"
-    rl_platform_path: "~/ws/rl-platform/source/rl_platform"
     side_map:
       - "right:right_arm,right_hand"
       - "left:left_arm,left_hand"
@@ -338,7 +345,6 @@ rl_real:
 
   rl_adapter:
     export_dir: "~/ws/rl-platform/exported/handover_student_v2"
-    rl_platform_path: "~/ws/rl-platform/source/rl_platform"
     side_map:
       - "right:right_arm,right_hand"
       - "left:left_arm,left_hand"

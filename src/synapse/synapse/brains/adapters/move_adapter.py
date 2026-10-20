@@ -23,19 +23,15 @@ class MoveAdapter(BaseBrainAdapter):
     its planned duration and tripped the Actions' time-based failure guards.
     """
 
-    def __init__(self, terminal, node_name="move_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="move_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
 
-        def _p(name, default):
-            full = f"{self.get_name()}.{name}"
-            return self.get_parameter(full).value if self.has_parameter(full) else default
-
-        self.linear_speed = _p('linear_speed', 0.05)    # m/s
-        self.angular_speed = _p('angular_speed', 0.5)   # rad/s
-        self.joint_speed = _p('joint_speed', 1.0)       # rad/s, for joint_targets legs
-        self.min_duration = _p('min_duration', 0.5)     # s, floor for very short moves
-        self.ik_tolerance = _p('ik_tolerance', 0.005)   # m, residual that blocks the move
-        self.ik_iterations = _p('ik_iterations', 4)      # re-seeded solves per waypoint
+        self.linear_speed = self.param('linear_speed', 0.05)    # m/s
+        self.angular_speed = self.param('angular_speed', 0.5)   # rad/s
+        self.joint_speed = self.param('joint_speed', 1.0)       # rad/s, for joint_targets legs
+        self.min_duration = self.param('min_duration', 0.5)     # s, floor for very short moves
+        self.ik_tolerance = self.param('ik_tolerance', 0.005)   # m, residual that blocks the move
+        self.ik_iterations = self.param('ik_iterations', 4)      # re-seeded solves per waypoint
 
         self.robots_cfg = EmbodimentParser(self.embodiment_name).get_robots()
         self.kin = ArmKinematics(self.robots_cfg, terminal)
@@ -43,7 +39,7 @@ class MoveAdapter(BaseBrainAdapter):
 
         self.reset()
         self.terminal.log(
-            f"🎯 [{node_name}] initialized. {self.linear_speed} m/s, {self.angular_speed} rad/s, "
+            f"🎯 [{self.name}] initialized. {self.linear_speed} m/s, {self.angular_speed} rad/s, "
             f"min {self.min_duration}s, IK tolerance {self.ik_tolerance * 1000:.0f} mm."
         )
 
@@ -79,7 +75,7 @@ class MoveAdapter(BaseBrainAdapter):
 
             if target_pose is not None:
                 if name not in self.kin.robots:
-                    self.terminal.log(f"⚠️ [{self.get_name()}] '{name}' is no manipulator, holding it")
+                    self.terminal.log(f"⚠️ [{self.name}] '{name}' is no manipulator, holding it")
                     continue
                 start = eef_poses.get(name)
                 self.plan[name] = {'kind': 'pose', 'start': start, 'target': list(target_pose)}
@@ -90,7 +86,7 @@ class MoveAdapter(BaseBrainAdapter):
                     # Refuse the whole Action: moving one arm while another's
                     # target is bogus is worse than not moving at all.
                     self.terminal.log(
-                        f"🛑 [{self.get_name()}] '{name}' target is unreachable "
+                        f"🛑 [{self.name}] '{name}' target is unreachable "
                         f"(IK off by {residual * 1000:.1f} mm), not moving")
                     self.plan.clear()
                     self.blocked = True
@@ -101,7 +97,7 @@ class MoveAdapter(BaseBrainAdapter):
 
             elif target_joints is not None:
                 if not observed or len(observed.position) != len(target_joints):
-                    self.terminal.log(f"⚠️ [{self.get_name()}] no joint state for '{name}', holding it")
+                    self.terminal.log(f"⚠️ [{self.name}] no joint state for '{name}', holding it")
                     continue
                 self.plan[name] = {'kind': 'joints', 'start': list(observed.position),
                                    'target': list(target_joints)}
@@ -109,11 +105,11 @@ class MoveAdapter(BaseBrainAdapter):
                 duration = max(duration, span / max(self.joint_speed, 1e-6))
 
             else:
-                self.terminal.log(f"⚠️ [{self.get_name()}] '{name}' has no target, holding it")
+                self.terminal.log(f"⚠️ [{self.name}] '{name}' has no target, holding it")
 
         self.duration = max(duration, self.chunk_dt)
         self.start_time = time.monotonic()
-        self.terminal.log(f"🎯 [{self.get_name()}] moving {list(self.plan)} over {self.duration:.2f}s")
+        self.terminal.log(f"🎯 [{self.name}] moving {list(self.plan)} over {self.duration:.2f}s")
 
     def _solve(self, name: str, pose: list, seed):
         """Chain solves: one Gauss-Newton pass undershoots badly when the seed is
@@ -173,7 +169,7 @@ class MoveAdapter(BaseBrainAdapter):
             # Action's failure condition takes it from here.
             if residual > self.ik_tolerance:
                 self.terminal.log(
-                    f"🛑 [{self.get_name()}] '{name}' IK off by {residual * 1000:.1f} mm, holding")
+                    f"🛑 [{self.name}] '{name}' IK off by {residual * 1000:.1f} mm, holding")
                 self.blocked = True
                 return []
 
@@ -182,13 +178,13 @@ class MoveAdapter(BaseBrainAdapter):
 
         if self.progress >= 1.0:
             self.last_done = True
-            self.terminal.log(f"✅ [{self.get_name()}] move complete")
+            self.terminal.log(f"✅ [{self.name}] move complete")
 
         return [step]
 
     def _joint_state(self, name: str, positions) -> JointState:
         msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.name = self.robots_cfg.get(name, {}).get('joint_names', [])
         msg.position = list(positions)
         return msg
