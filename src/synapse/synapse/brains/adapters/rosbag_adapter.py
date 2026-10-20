@@ -17,17 +17,13 @@ class RosbagAdapter(BaseBrainAdapter):
     STATE_PLAYING = "PLAYING"
     STATE_DONE = "DONE"
 
-    def __init__(self, terminal, node_name="rosbag_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="rosbag_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
 
-        def _p(name, default):
-            full = f"{self.get_name()}.{name}"
-            return self.get_parameter(full).value if self.has_parameter(full) else default
-
-        raw_map = _p('topic_component_map', [])
-        self.seek_velocity = _p('seek_velocity', 0.2)
-        self.seek_min_duration = _p('seek_min_duration', 0.5)
-        self.denormal_epsilon = _p('denormal_epsilon', 1e-6)
+        raw_map = self.param('topic_component_map', [])
+        self.seek_velocity = self.param('seek_velocity', 0.2)
+        self.seek_min_duration = self.param('seek_min_duration', 0.5)
+        self.denormal_epsilon = self.param('denormal_epsilon', 1e-6)
 
         self.topic_component_map = {}
         for entry in raw_map:
@@ -48,10 +44,10 @@ class RosbagAdapter(BaseBrainAdapter):
         self.playback_start_time = None
         self.last_done = False
 
-        self.bag_path = assets_get_path(_p('bag_filename', None))
+        self.bag_path = assets_get_path(self.param('bag_filename', None))
         self._load_bag()
         self.terminal.log(
-            f"🎞️ [{node_name}] loaded bag '{self.bag_path}' "
+            f"🎞️ [{self.name}] loaded bag '{self.bag_path}' "
             f"({len(self.bag_data)} mapped components), seek_velocity={self.seek_velocity} rad/s"
         )
 
@@ -179,7 +175,7 @@ class RosbagAdapter(BaseBrainAdapter):
         step = {}
         for component, positions in values.items():
             msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = self.node.get_clock().now().to_msg()
             msg.name = self.robots_cfg.get(component, {}).get('joint_names', [])
             msg.position = positions
             step[component] = msg

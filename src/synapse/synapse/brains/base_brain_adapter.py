@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
-from rclpy.node import Node
 from dataclasses import dataclass
+
+from synapse.utils.paths import resolve_path
+
+_REQUIRED = object()
+
 
 @dataclass
 class InferenceOption:
@@ -8,20 +12,37 @@ class InferenceOption:
     restart: bool = False
     params: dict = None      # per-Action knobs from the scenario YAML; None outside the BT
 
-class BaseBrainAdapter(ABC, Node):
-    def __init__(self, terminal, node_name=None, parameter_overrides=None):
-        super().__init__(
-            node_name,
-            parameter_overrides=parameter_overrides,
-            allow_undeclared_parameters=True,
-            automatically_declare_parameters_from_overrides=True
-        )
-        self.embodiment_name = self.get_parameter('embodiment_name').value
-        self.terminal = terminal
 
-        tick_freq = self.get_parameter('bt_tick_frequency_hz').value \
-            if self.has_parameter('bt_tick_frequency_hz') else 50
-        self.chunk_dt = 1.0 / tick_freq
+class BaseBrainAdapter(ABC):
+    """A plain object, not a ROS node. Parameters arrive as a flat dict of the main
+    node's parameters ('<name>.<key>', 'paths.<key>', ...); anything that needs ROS
+    (clock, subscriptions) goes through `self.node`, the main node, so its callbacks
+    run on the executor that is actually spinning."""
+
+    def __init__(self, terminal, name, params: dict, ros_node):
+        self.terminal = terminal
+        self.name = name
+        self.params = params
+        self.node = ros_node
+
+        self.embodiment_name = params['embodiment_name']
+        self.chunk_dt = 1.0 / params.get('bt_tick_frequency_hz', 50)
+
+    def param(self, key, default=_REQUIRED):
+        """This adapter's own setting, i.e. '<name>.<key>' in the profile."""
+        full = f"{self.name}.{key}"
+        if full in self.params:
+            return self.params[full]
+        if default is _REQUIRED:
+            raise KeyError(f"[{self.name}] missing required parameter '{full}'")
+        return default
+
+    def path(self, key) -> str:
+        """A shared path from the `paths:` block in config_main.yaml, resolved."""
+        full = f"paths.{key}"
+        if full not in self.params:
+            raise KeyError(f"[{self.name}] missing '{key}' in the paths: block of config_main.yaml")
+        return resolve_path(self.params[full])
 
     def infer(self, obs_history: list, inference_option: InferenceOption = None) -> list:
         if not obs_history:
@@ -41,8 +62,8 @@ class BaseBrainAdapter(ABC, Node):
         #         if hasattr(msg, 'position') and msg.position:
         #             pos_str = ", ".join(f"{v:.3f}" for v in msg.position)
         #             debug_strings.append(f"{robot_name}: [{pos_str}]")
-        #     _chunk = " | ".join(debug_strings) 
-        
+        #     _chunk = " | ".join(debug_strings)
+
         # self.terminal.log(f"🧠🧠 return {_chunk}")
 
         return action_chunk

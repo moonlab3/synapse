@@ -5,8 +5,8 @@ from synapse.utils.embodiment_parser import EmbodimentParser
 from synapse.utils.kinematics import ArmKinematics
 
 class ManualAdapter(BaseBrainAdapter):
-    def __init__(self, terminal, node_name="manual_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="manual_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
         self.current_hand_joints = {}
         self.terminal = terminal
 

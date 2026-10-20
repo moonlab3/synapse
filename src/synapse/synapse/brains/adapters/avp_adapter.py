@@ -38,31 +38,27 @@ class AvpTeleopAdapter(BaseBrainAdapter):
     lands while the arm is still moving, instead of after it braked to a stop.
     """
 
-    def __init__(self, terminal, node_name="avp_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="avp_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
 
-        def _p(name, default):
-            full = f"{self.get_name()}.{name}"
-            return self.get_parameter(full).value if self.has_parameter(full) else default
-
-        self.avp_ip = _p('avp_ip', None)
-        self.arm_map = dict(e.split(':', 1) for e in _p('arm_map', []))    # 'left'|'right' -> component
-        self.hand_map = dict(e.split(':', 1) for e in _p('hand_map', []))
+        self.avp_ip = self.param('avp_ip', None)
+        self.arm_map = dict(e.split(':', 1) for e in self.param('arm_map', []))    # 'left'|'right' -> component
+        self.hand_map = dict(e.split(':', 1) for e in self.param('hand_map', []))
         # AVP frame is x right, y forward, z up; -90 deg suits a base whose x points forward.
-        self.r_map = Rotation.from_euler('z', _p('avp_yaw_deg', -90.0), degrees=True).as_matrix()
-        self.scale = _p('scale', 1.0)
-        self.max_linear_speed = _p('max_linear_speed', 0.25)  # m/s of eef travel
-        self.max_angular_speed = _p('max_angular_speed', 2.5) # rad/s of eef rotation
-        self.max_finger_speed = _p('max_finger_speed', 5.0)   # rad/s, every hand joint
-        self.trajectory_lookahead = _p('trajectory_lookahead', 2.0)  # point duration, in waypoint periods
-        self.stale_timeout = _p('stale_timeout', 0.2)         # s without a new frame
-        self.ik_tolerance = _p('ik_tolerance', 0.005)         # m, residual that holds the arm
-        self.ik_iterations = _p('ik_iterations', 4)           # re-seeded solves per waypoint
+        self.r_map = Rotation.from_euler('z', self.param('avp_yaw_deg', -90.0), degrees=True).as_matrix()
+        self.scale = self.param('scale', 1.0)
+        self.max_linear_speed = self.param('max_linear_speed', 0.25)  # m/s of eef travel
+        self.max_angular_speed = self.param('max_angular_speed', 2.5) # rad/s of eef rotation
+        self.max_finger_speed = self.param('max_finger_speed', 5.0)   # rad/s, every hand joint
+        self.trajectory_lookahead = self.param('trajectory_lookahead', 2.0)  # point duration, in waypoint periods
+        self.stale_timeout = self.param('stale_timeout', 0.2)         # s without a new frame
+        self.ik_tolerance = self.param('ik_tolerance', 0.005)         # m, residual that holds the arm
+        self.ik_iterations = self.param('ik_iterations', 4)           # re-seeded solves per waypoint
         # Per joint Y, applied to the operator's angle: robot = gain * angle + offset.
-        self.finger_gain = _p('finger_gain', [1.0] * 4)       # spread, then three bends
-        self.finger_offset = _p('finger_offset', [0.0] * 4)
-        self.thumb_gain = _p('thumb_gain', [1.0] * 4)         # bend whole thumb, rotate (unused), two bends
-        self.thumb_offset = _p('thumb_offset', [0.0] * 4)
+        self.finger_gain = self.param('finger_gain', [1.0] * 4)       # spread, then three bends
+        self.finger_offset = self.param('finger_offset', [0.0] * 4)
+        self.thumb_gain = self.param('thumb_gain', [1.0] * 4)         # bend whole thumb, rotate (unused), two bends
+        self.thumb_offset = self.param('thumb_offset', [0.0] * 4)
 
         self.robots_cfg = EmbodimentParser(self.embodiment_name).get_robots()
         for hand in self.hand_map.values():
@@ -80,7 +76,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         threading.Thread(target=self._connect, daemon=True).start()
 
         self.reset()
-        self.terminal.log(f"🥽 [{node_name}] initialized. Waiting for Vision Pro at {self.avp_ip}.")
+        self.terminal.log(f"🥽 [{self.name}] initialized. Waiting for Vision Pro at {self.avp_ip}.")
 
     def _connect(self):
         # VisionProStreamer() blocks until the headset streams, so it stays off the
@@ -89,9 +85,9 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         try:
             from avp_stream import VisionProStreamer
             self.streamer = VisionProStreamer(ip=self.avp_ip, record=False)
-            self.terminal.log(f"🥽 [{self.get_name()}] Vision Pro stream is up")
+            self.terminal.log(f"🥽 [{self.name}] Vision Pro stream is up")
         except Exception as e:
-            self.terminal.log(f"❌ [{self.get_name()}] Vision Pro stream failed: {e}")
+            self.terminal.log(f"❌ [{self.name}] Vision Pro stream failed: {e}")
 
     # ------------------------------------------------------------------
     def reset(self):
@@ -145,7 +141,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             self.last_frame, self.last_frame_time = data.raw, now
         elif now - self.last_frame_time > self.stale_timeout:
             if self.anchors:
-                self.terminal.log(f"⚠️ [{self.get_name()}] Vision Pro stream is stale, holding")
+                self.terminal.log(f"⚠️ [{self.name}] Vision Pro stream is stale, holding")
             self.anchors.clear()  # re-engage from wherever the hands are when it returns
             self.commanded.clear()
             return {}
@@ -170,7 +166,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             wrist = frame[f"{side}_wrist"].reshape(4, 4)
             if not self._tracked(side, wrist, now):
                 if self.anchors.pop(side, None):
-                    self.terminal.log(f"⚠️ [{self.get_name()}] {side} hand lost, holding")
+                    self.terminal.log(f"⚠️ [{self.name}] {side} hand lost, holding")
                 self.commanded.pop(self.hand_map.get(side), None)
                 continue
 
@@ -196,7 +192,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
             self.anchors[side] = (wrist, obs["eef_poses"][arm])
             self.commanded[arm] = obs["eef_poses"][arm]
             self.seeds[arm] = self.kin.seed_from_positions(arm, observed.position)
-            self.terminal.log(f"🥽 [{self.get_name()}] {side} hand engaged '{arm}'")
+            self.terminal.log(f"🥽 [{self.name}] {side} hand engaged '{arm}'")
 
         wrist0, eef0 = self.anchors[side]
         # The wrist's motion since engage, turned into the arm's base frame and
@@ -221,7 +217,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
         if residual > self.ik_tolerance:
             if arm not in self.held:
                 self.terminal.log(
-                    f"🛑 [{self.get_name()}] '{arm}' IK off by {residual * 1000:.1f} mm, holding")
+                    f"🛑 [{self.name}] '{arm}' IK off by {residual * 1000:.1f} mm, holding")
                 self.held.add(arm)
             return None
 
@@ -308,7 +304,7 @@ class AvpTeleopAdapter(BaseBrainAdapter):
 
     def _joint_state(self, name: str, positions) -> JointState:
         msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.name = self.robots_cfg.get(name, {}).get('joint_names', [])
         msg.position = list(positions)
         return msg

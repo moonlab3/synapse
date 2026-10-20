@@ -20,7 +20,7 @@ import functools
 import py_trees
 import os
 import time
-from ament_index_python.packages import get_package_share_directory
+from synapse.utils.paths import synapse_share_dir
 
 
 class SynapseMainNode(Node):
@@ -42,8 +42,8 @@ class SynapseMainNode(Node):
         registry_list = self.get_parameter('brain_registry').value
         scenario_filename = self.get_parameter('scenario_filename').value
 
-        all_params = self.get_parameters_by_prefix('')
-        param_overrides = list(all_params.values())
+        # Adapters are plain objects: they read this flat dict and reach ROS through self.
+        all_params = {name: p.value for name, p in self.get_parameters_by_prefix('').items()}
 
         self.terminal_ui.debug("start initializing")
         self.brain_adapters = {}
@@ -52,8 +52,9 @@ class SynapseMainNode(Node):
             self.brain_adapters[node_name] = BrainSelector.get_brain(
                 self.terminal_ui,
                 brain_type=adapter_type,
-                node_name=node_name,
-                parameter_overrides=param_overrides
+                ros_node=self,
+                params=all_params,
+                name=node_name,
             )
 
         self.terminal_ui.debug("after loading brains")
@@ -81,7 +82,7 @@ class SynapseMainNode(Node):
         self.bt_root = None
         if scenario_filename:
             self.terminal_ui.debug("Parsing start")
-            scenario_path = os.path.join(get_package_share_directory('synapse'), 'configs', scenario_filename)
+            scenario_path = os.path.join(synapse_share_dir(), 'configs', scenario_filename)
             self.bt_root = ScenarioParser(synapse_node=self).parse(scenario_path)
             self.terminal_ui.debug("Parsing done")
         else:

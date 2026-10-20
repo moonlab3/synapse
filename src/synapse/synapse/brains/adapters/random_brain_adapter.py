@@ -6,20 +6,16 @@ from synapse.utils.embodiment_parser import EmbodimentParser
 
 
 class RandomBrainAdapter(BaseBrainAdapter):
-    def __init__(self, terminal, node_name="dummy_brain_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="dummy_brain_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
 
         parser = EmbodimentParser(self.embodiment_name)
         self.robots_cfg = parser.get_robots()  # flattened, per component
 
-        def _p(name, default):
-            full = f"{self.get_name()}.{name}"
-            return self.get_parameter(full).value if self.has_parameter(full) else default
-
-        self.step_size = _p('step_size', 0.005)       # radians per micro-step
-        self.flip_prob = _p('flip_prob', 0.05)         # chance to reverse direction each step
-        self.chunk_length = _p('chunk_length', 1)     # micro-steps produced per inference call
-        self.bound_radius = _p('bound_radius', 0.3)    # soft +/- range around start pose (radians)
+        self.step_size = self.param('step_size', 0.005)       # radians per micro-step
+        self.flip_prob = self.param('flip_prob', 0.05)         # chance to reverse direction each step
+        self.chunk_length = self.param('chunk_length', 1)     # micro-steps produced per inference call
+        self.bound_radius = self.param('bound_radius', 0.3)    # soft +/- range around start pose (radians)
 
         self.joint_names = {}
         self.direction = {}          # component -> np.array of +1/-1 per joint
@@ -28,7 +24,7 @@ class RandomBrainAdapter(BaseBrainAdapter):
         self._seeded = set()
 
         self.terminal.log(
-            f"🎲 [{node_name}] initialized. Random-walk joint driver "
+            f"🎲 [{self.name}] initialized. Random-walk joint driver "
             f"(step={self.step_size}, flip_p={self.flip_prob}, "
             f"chunk={self.chunk_length}, bound=±{self.bound_radius})."
         )
@@ -102,7 +98,7 @@ class RandomBrainAdapter(BaseBrainAdapter):
             step_dict = {}
             for name, positions in step.items():
                 msg = JointState()
-                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.header.stamp = self.node.get_clock().now().to_msg()
                 msg.name = self.joint_names[name]
                 msg.position = positions.tolist()
                 step_dict[name] = msg

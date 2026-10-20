@@ -10,6 +10,7 @@ from sensor_msgs.msg import JointState
 from ..base_brain_adapter import BaseBrainAdapter
 from ..base_brain_adapter import InferenceOption
 from synapse.utils.embodiment_parser import EmbodimentParser
+from synapse.utils.paths import resolve_path
 
 
 def _canonical(joint_name: str) -> str:
@@ -27,31 +28,27 @@ class RLAdapter(BaseBrainAdapter):
     last targets are held.
     """
 
-    def __init__(self, terminal, node_name="rl_adapter", parameter_overrides=None):
-        super().__init__(terminal, node_name, parameter_overrides)
+    def __init__(self, terminal, name="rl_adapter", params=None, ros_node=None):
+        super().__init__(terminal, name, params, ros_node)
 
-        def _p(name, default):
-            full = f"{self.get_name()}.{name}"
-            return self.get_parameter(full).value if self.has_parameter(full) else default
-
-        rl_path = os.path.expanduser(_p('rl_platform_path', '~/ws/rl-platform/source/rl_platform'))
+        rl_path = self.path('rl_platform')
         if rl_path not in sys.path:
             sys.path.append(rl_path)
         from rl_platform.deploy.student_runtime import StudentRuntime  # numpy only
 
-        export_dir = os.path.expanduser(_p("export_dir", "~/ws/rl-platform/exported/handover_student_v2"))
+        export_dir = resolve_path(self.param('export_dir'))
         self.runtime = StudentRuntime(os.path.join(export_dir, 'spec.json'), os.path.join(export_dir, 'policy.npz'))
         self.period = 1.0 / float(self.runtime.spec['control_hz'])
 
         # 'right:right_arm,right_hand' -> policy side -> synapse components (arm first, then hand)
         self.side_map = {}
-        for entry in _p('side_map', ['right:right_arm,right_hand', 'left:left_arm,left_hand']):
+        for entry in self.param('side_map', ['right:right_arm,right_hand', 'left:left_arm,left_hand']):
             side, comps = entry.split(':', 1)
             self.side_map[side] = comps.split(',')
-        self.action_gain = float(_p('action_gain', 1.0))         # <1 slows every joint (first real runs)
-        self.max_start_error = float(_p('max_start_error', 0.15))  # rad from the training start pose
-        self.ball_timeout = float(_p('ball_timeout', 0.2))       # s before the ball counts as not seen
-        self.default_command = _p('default_command', 'handover')
+        self.action_gain = float(self.param('action_gain', 1.0))         # <1 slows every joint (first real runs)
+        self.max_start_error = float(self.param('max_start_error', 0.15))  # rad from the training start pose
+        self.ball_timeout = float(self.param('ball_timeout', 0.2))       # s before the ball counts as not seen
+        self.default_command = self.param('default_command', 'handover')
 
         self.robots_cfg = EmbodimentParser(self.embodiment_name).get_robots()
         for side, comps in self.side_map.items():
@@ -61,14 +58,14 @@ class RLAdapter(BaseBrainAdapter):
 
         self._ball = None
         self._ball_stamp = 0.0
-        self.create_subscription(PointStamped, _p('ball_topic', '/rl/ball_position'), self._ball_cb, 10)
+        self.node.create_subscription(PointStamped, self.param('ball_topic', '/rl/ball_position'), self._ball_cb, 10)
 
         self._started = False
         self._last_step = 0.0
         self._prev_pos = None
         self._targets = None
         self.terminal.log(
-            f"🤖 [{node_name}] policy {export_dir} ({self.runtime.spec['obs_dim']} obs -> "
+            f"🤖 [{self.name}] policy {export_dir} ({self.runtime.spec['obs_dim']} obs -> "
             f"{self.runtime.spec['action_dim']} act, {self.runtime.spec['control_hz']} Hz), gain {self.action_gain}"
         )
 
@@ -138,7 +135,7 @@ class RLAdapter(BaseBrainAdapter):
         if raw_action is None:
             return []
         step = {}
-        stamp = self.get_clock().now().to_msg()
+        stamp = self.node.get_clock().now().to_msg()
         for side, comps in self.side_map.items():
             order = self.runtime.side[side]['order']
             target = dict(zip(order, raw_action[side]))

@@ -1,10 +1,12 @@
+import glob
 import os
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription, LaunchContext
 from launch_ros.actions import Node
 from launch.actions import SetEnvironmentVariable, DeclareLaunchArgument, OpaqueFunction, LogInfo
 from launch.substitutions import LaunchConfiguration
+from synapse.utils.paths import resolve_path
 
 def setup_launch(context: LaunchContext, *args, **kwargs):
     config_nickname = LaunchConfiguration('config').perform(context)
@@ -21,17 +23,28 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
     with open(synapse_config_path, 'r') as f:
         config = yaml.safe_load(f)
 
+    shared_paths = config.pop('paths', None) or {}
     if config_nickname not in config:
         raise ValueError(f"Nickname '{config_nickname}' not found in config_main.yaml")
 
     active_config = config[config_nickname]
+    # Shared paths: block, single keys overridable per profile. Nodes read paths.<key>.
+    paths = {**shared_paths, **(active_config.get('paths') or {})}
+    active_config['paths'] = paths
     muscle_option = active_config.get('muscle_option', 'DUMMY')
+
+    # isaac_node runs in Isaac Sim's Python with AMENT_*/ROS_* scrubbed, so it can
+    # neither find the share dir nor the installed package on its own: hand both over.
+    share_dir = get_package_share_directory('synapse')
+    env_actions = [SetEnvironmentVariable('SYNAPSE_SHARE_DIR', share_dir)]
+    if paths.get('assets'):
+        env_actions.append(SetEnvironmentVariable('SYNAPSE_ASSETS_DIR', resolve_path(paths['assets'])))
 
     # The TUI reads keys from a terminal of its own. The GUI reads them from
     # its window, so a spawned terminal would only sit there empty.
     main_node_kwargs = {'prefix': 'gnome-terminal --wait --'} if ui_mode == 'tui' else {}
 
-    nodes = [
+    nodes = env_actions + [
         SetEnvironmentVariable('RCUTILS_CONSOLE_OUTPUT_FORMAT', '[{severity}]: {message}'),
         Node(
             package='synapse',
@@ -58,13 +71,20 @@ def setup_launch(context: LaunchContext, *args, **kwargs):
                 )
             )
         case "ISAAC":
+            isaac_root = resolve_path(paths['isaac_sim_root'])
+            site_packages = glob.glob(os.path.join(
+                get_package_prefix('synapse'), 'lib', 'python3*', 'site-packages'))
+            if not site_packages:
+                raise FileNotFoundError("synapse site-packages not found under the install prefix")
             nodes.append(
                 Node(
                     package='synapse',
                     executable='isaac_node.py',
+                    prefix=os.path.join(isaac_root, 'python.sh'),
                     output='screen',
                     emulate_tty=True,
                     parameters=[active_config],
+                    additional_env={'SYNAPSE_PYTHONPATH': site_packages[0]},
                 )
             )
         case "RVIZ":
