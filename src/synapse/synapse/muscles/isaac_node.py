@@ -25,7 +25,8 @@ if os.environ.get('_ISAAC_ENV_CLEANED') != '1':
         sys.exit("❌ ISAAC_PATH is not set: run isaac_node through Isaac Sim's python.sh")
 
     for key in list(os.environ.keys()):
-        if any(trigger in key for trigger in ['ROS', 'AMENT', 'RMW']):
+        # ROS_DOMAIN_ID survives: without it the re-exec falls back to the default above.
+        if key != 'ROS_DOMAIN_ID' and any(trigger in key for trigger in ['ROS', 'AMENT', 'RMW']):
             del os.environ[key]
 
     for path_var in ['LD_LIBRARY_PATH', 'PYTHONPATH']:
